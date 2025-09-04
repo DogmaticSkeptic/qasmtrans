@@ -16,9 +16,9 @@ using namespace QASMTrans;
 std::string toLowerCase(const std::string &str)
 {
     std::string result = str;
-    std::transform(result.begin(), result.end(), result.begin(), 
-            [](unsigned char c)
-            { return std::tolower(c); });
+    std::transform(result.begin(), result.end(), result.begin(),
+                   [](unsigned char c)
+                   { return std::tolower(c); });
     return result;
 }
 // Function to write QASM file
@@ -42,29 +42,29 @@ void dumpQASM(std::shared_ptr<QASMTrans::Circuit> circuit, const char *filename,
     {
         switch (mode)
         {
-            case 0: //IBMQ
-                file_name << output_path << "transpiled_IBMQ_" << new_file;
-                output_path = output_path + "transpiled_IBMQ_" + new_file;
-                break;
-            case 1: //IonQ
-                file_name << output_path << "transpiled_IonQ_" << new_file;
-                output_path = output_path + "transpiled_IonQ_" + new_file;
-                break;
-            case 2: //Quantinuum
-                file_name << output_path << "transpiled_Quantinuum_" << new_file;
-                output_path = output_path + "transpiled_Quantinuum_" + new_file;
-                break;
-            case 3: //Rigetti
-                file_name << output_path << "transpiled_Rigetti_" << new_file;
-                output_path = output_path + "transpiled_Rigetti_" + new_file;
-                break;
-            case 4: //Quafu
-                file_name << output_path << "transpiled_Quafu_" << new_file;
-                output_path = output_path + "transpiled_Quafu_" + new_file;
-                break;
-            default:
-                std::cerr << "Error: unspecified mode!" << endl;
-                exit(1);
+        case 0: // IBMQ
+            file_name << output_path << "transpiled_IBMQ_" << new_file;
+            output_path = output_path + "transpiled_IBMQ_" + new_file;
+            break;
+        case 1: // IonQ
+            file_name << output_path << "transpiled_IonQ_" << new_file;
+            output_path = output_path + "transpiled_IonQ_" + new_file;
+            break;
+        case 2: // Quantinuum
+            file_name << output_path << "transpiled_Quantinuum_" << new_file;
+            output_path = output_path + "transpiled_Quantinuum_" + new_file;
+            break;
+        case 3: // Rigetti
+            file_name << output_path << "transpiled_Rigetti_" << new_file;
+            output_path = output_path + "transpiled_Rigetti_" + new_file;
+            break;
+        case 4: // Quafu
+            file_name << output_path << "transpiled_Quafu_" << new_file;
+            output_path = output_path + "transpiled_Quafu_" + new_file;
+            break;
+        default:
+            std::cerr << "Error: unspecified mode!" << endl;
+            exit(1);
         }
         qasm_file.open(file_name.str());
     }
@@ -116,12 +116,13 @@ void dumpQASM(std::shared_ptr<QASMTrans::Circuit> circuit, const char *filename,
     }
     else
     {
-        std::cerr << "Unable to open file";
+        // std::cerr << "Unable to open file";
     }
+
     if (debug_level > 0)
     {
         IdxType n_gates = circuit->num_gates();
-        std::cout << "In total, " << n_gates << " basis gates in transpiled circuit: ";
+        std::cout << "Transpiled circuit contains " << circuit->num_qubits() << " qubits and " << n_gates << " basis gates: ";
         for (auto &gate : basis_gate_counts)
         {
             std::cout << gate.first << ":" << gate.second << ", ";
