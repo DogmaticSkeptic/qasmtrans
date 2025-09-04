@@ -31,10 +31,11 @@ namespace QASMTrans
             // Implementation of constructor
             gates = std::make_shared<std::vector<Gate>>();
         }
-        ~Circuit(){};
+        ~Circuit() {};
         IdxType num_qubits() { return n_qubits; };
         IdxType num_gates() { return gates->size(); };
         bool is_empty() { return gates->empty(); };
+
         std::vector<Gate> get_gates()
         {
             return *gates;
@@ -42,6 +43,21 @@ namespace QASMTrans
         void set_gates(std::vector<Gate> new_gates)
         {
             gates = std::make_shared<std::vector<Gate>>(new_gates);
+            // auto-update number of qubits based on maximum gate index encountered
+            IdxType max_q = -1;
+            for (const auto &g : *gates)
+            {
+                if (g.qubit >= 0)
+                    max_q = std::max(max_q, g.qubit);
+                if (g.ctrl >= 0)
+                    max_q = std::max(max_q, g.ctrl);
+                if (g.extra >= 0)
+                    max_q = std::max(max_q, g.extra);
+            }
+            if (max_q + 1 > n_qubits)
+            {
+                n_qubits = max_q + 1;
+            }
         }
         void set_creg(map<string, creg> list_cregs)
         {
