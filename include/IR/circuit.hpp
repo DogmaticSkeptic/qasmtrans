@@ -6,10 +6,15 @@
 #include <memory>
 #include <cmath>
 #include <map>
+#include <algorithm>
+#include <limits>
+#include <set>
+#include <unordered_map>
 
 #include "../QASMTransPrimitives.hpp"
 #include "../parser/parser_util.hpp"
 #include "gate.hpp"
+#include "graph.hpp"
 
 using namespace std;
 
@@ -26,6 +31,10 @@ namespace QASMTrans
         std::shared_ptr<std::vector<Gate>> gates;
         map<string, creg> list_cregs;
         std::vector<IdxType> initial_mapping;
+        std::vector<std::vector<IdxType>> adj_mat;
+        std::vector<std::vector<IdxType>> edge_list;
+        std::vector<std::vector<IdxType>> distance_mat;
+
         Circuit(IdxType _n_qubits) : n_qubits(_n_qubits)
         {
             // Implementation of constructor
@@ -78,6 +87,126 @@ namespace QASMTrans
         map<string, creg> get_cregs()
         {
             return this->list_cregs;
+        }
+        void populate_connectivity()
+        {
+            if (!gates)
+            {
+                adj_mat.clear();
+                edge_list.clear();
+                distance_mat.clear();
+                return;
+            }
+
+            std::vector<IdxType> mapping = initial_mapping;
+            if (mapping.empty())
+            {
+                mapping.resize(n_qubits);
+                for (IdxType i = 0; i < n_qubits; ++i)
+                {
+                    mapping[i] = i;
+                }
+            }
+
+            std::vector<IdxType> nodes = mapping;
+            std::sort(nodes.begin(), nodes.end());
+            nodes.erase(std::unique(nodes.begin(), nodes.end()), nodes.end());
+
+            if (nodes.empty())
+            {
+                adj_mat.clear();
+                edge_list.clear();
+                distance_mat.clear();
+                return;
+            }
+
+            std::unordered_map<IdxType, IdxType> node_to_index;
+            // Record a zero-based index for each physical qubit present in the mapping.
+            for (IdxType i = 0; i < static_cast<IdxType>(nodes.size()); ++i)
+            {
+                node_to_index[nodes[i]] = i;
+            }
+
+            IdxType matrix_size = static_cast<IdxType>(nodes.size());
+            adj_mat.assign(matrix_size, std::vector<IdxType>(matrix_size, 0));
+            edge_list.assign(matrix_size, {});
+            const IdxType inf = std::numeric_limits<IdxType>::max() / 2;
+            distance_mat.assign(matrix_size, std::vector<IdxType>(matrix_size, inf));
+            // Initialise distance diagonal to zero.
+            for (IdxType i = 0; i < matrix_size; ++i)
+            {
+                distance_mat[i][i] = 0;
+            }
+
+            // Add an undirected edge for each two-qubit interaction encountered in the gate list.
+            for (const auto &gate : *gates)
+            {
+                if (gate.ctrl < 0 || gate.qubit < 0)
+                {
+                    continue;
+                }
+                if (gate.ctrl >= static_cast<IdxType>(mapping.size()) || gate.qubit >= static_cast<IdxType>(mapping.size()))
+                {
+                    continue;
+                }
+
+                IdxType ctrl_qubit = mapping[gate.ctrl];
+                IdxType target_qubit = mapping[gate.qubit];
+                auto ctrl_it = node_to_index.find(ctrl_qubit);
+                auto tgt_it = node_to_index.find(target_qubit);
+                if (ctrl_it == node_to_index.end() || tgt_it == node_to_index.end())
+                {
+                    continue;
+                }
+
+                IdxType u = ctrl_it->second;
+                IdxType v = tgt_it->second;
+                if (u == v)
+                {
+                    continue;
+                }
+
+                adj_mat[u][v] = 1;
+                adj_mat[v][u] = 1;
+                distance_mat[u][v] = 1;
+                distance_mat[v][u] = 1;
+            }
+
+            // Populate edge list neighbours from the adjacency matrix.
+            for (IdxType i = 0; i < matrix_size; ++i)
+            {
+                for (IdxType j = 0; j < matrix_size; ++j)
+                {
+                    if (adj_mat[i][j] == 1)
+                    {
+                        edge_list[i].push_back(j);
+                    }
+                }
+            }
+
+            // Run Floyd–Warshall to fill all-pairs shortest paths.
+            for (IdxType k = 0; k < matrix_size; ++k)
+            {
+                for (IdxType i = 0; i < matrix_size; ++i)
+                {
+                    if (distance_mat[i][k] == inf)
+                    {
+                        continue;
+                    }
+                    for (IdxType j = 0; j < matrix_size; ++j)
+                    {
+                        if (distance_mat[k][j] == inf)
+                        {
+                            continue;
+                        }
+                        IdxType through_k = distance_mat[i][k] + distance_mat[k][j];
+                        if (through_k < distance_mat[i][j])
+                        {
+                            distance_mat[i][j] = through_k;
+                        }
+                    }
+                }
+            }
         }
         void clear()
         {

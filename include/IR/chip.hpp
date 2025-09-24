@@ -4,6 +4,9 @@
 #include <string>
 #include <fstream>
 #include <sstream>
+#include <unordered_map>
+#include <map>
+#include <exception>
 
 #include "../nlomann/json.hpp"
 #include "graph.hpp"
@@ -30,6 +33,8 @@ namespace QASMTrans
         vector<vector<IdxType>> adj_mat;
         vector<vector<IdxType>> edge_list;
         vector<vector<IdxType>> distance_mat;
+        std::vector<std::unordered_map<std::string, double>> single_qubit_errors;
+        std::map<std::pair<IdxType, IdxType>, std::unordered_map<std::string, double>> two_qubit_errors;
     };
 
     vector<vector<IdxType>> floyd(IdxType node_num, vector<vector<IdxType>> &adj_mat)
@@ -133,6 +138,57 @@ namespace QASMTrans
         shared_ptr<Chip> chip = make_shared<Chip>(distance_mat.size(), adj_mat, edge_list, distance_mat);
         auto chip_qubit_num = backend_config["num_qubits"];
         chip->chip_qubit_num = chip_qubit_num;
+        chip->single_qubit_errors.assign(chip->chip_qubit_num, {});
+
+        if (backend_config.contains("gate_errs"))
+        {
+            const auto &gate_errs = backend_config["gate_errs"];
+            for (auto it = gate_errs.begin(); it != gate_errs.end(); ++it)
+            {
+                const std::string gate_identifier = it.key();
+                double error_value = it.value();
+
+                size_t first_digit = gate_identifier.find_first_of("0123456789");
+                if (first_digit == std::string::npos)
+                {
+                    continue;
+                }
+
+                std::string gate_name = gate_identifier.substr(0, first_digit);
+                if (gate_name.empty())
+                {
+                    continue;
+                }
+
+                size_t underscore_pos = gate_identifier.find('_', first_digit);
+                try
+                {
+                    if (underscore_pos == std::string::npos)
+                    {
+                        IdxType qubit = static_cast<IdxType>(std::stoll(gate_identifier.substr(first_digit)));
+                        if (qubit >= 0 && qubit < static_cast<IdxType>(chip->single_qubit_errors.size()))
+                        {
+                            chip->single_qubit_errors[qubit][gate_name] = error_value;
+                        }
+                    }
+                    else
+                    {
+                        IdxType first_qubit = static_cast<IdxType>(std::stoll(gate_identifier.substr(first_digit, underscore_pos - first_digit)));
+                        IdxType second_qubit = static_cast<IdxType>(std::stoll(gate_identifier.substr(underscore_pos + 1)));
+                        if (first_qubit >= 0 && first_qubit < chip->chip_qubit_num &&
+                            second_qubit >= 0 && second_qubit < chip->chip_qubit_num)
+                        {
+                            std::pair<IdxType, IdxType> key = {first_qubit, second_qubit};
+                            chip->two_qubit_errors[key][gate_name] = error_value;
+                        }
+                    }
+                }
+                catch (const std::exception &)
+                {
+                    continue;
+                }
+            }
+        }
         return chip;
     }
 

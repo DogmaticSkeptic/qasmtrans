@@ -19,6 +19,7 @@
 
 #include "routing_mapping.hpp"
 #include "decompose.hpp"
+#include "mapomatic.hpp"
 #include "remapping.hpp"
 
 using namespace QASMTrans;
@@ -57,7 +58,17 @@ void transpiler(shared_ptr<Circuit> circuit, shared_ptr<Chip> chip, map<string, 
         cout << "STEP-2. Routing and mapping time: " << (IdxType)routing_time << "ms" << endl;
     if (debug_level > 1)
         cout << circuit->to_string() << endl;
-    //======================================== STEP-3: Basis Gate Decomposition =======================================
+    //======================================== STEP-3: Calibration-Aware Optimization =======================================
+    cpu_timer calib_timer;
+    calib_timer.start_timer();
+    calibration_aware_optimization(circuit, chip, debug_level);
+    calib_timer.stop_timer();
+    double calib_time = calib_timer.measure();
+    if (debug_level > 0)
+        cout << "STEP-3. Calibration-aware optimization time: " << (IdxType)calib_time << "ms" << endl;
+    if (debug_level > 1)
+        cout << circuit->to_string() << endl;
+    //======================================== STEP-4: Basis Gate Decomposition =======================================
     cpu_timer decompose_timer;
     decompose_timer.start_timer();
     Decompose(circuit, mode);
@@ -65,7 +76,7 @@ void transpiler(shared_ptr<Circuit> circuit, shared_ptr<Chip> chip, map<string, 
     double decompose_time = decompose_timer.measure();
     if (debug_level > 0)
     {
-        cout << "STEP-3. Basis gate decomposition time: " << (IdxType)decompose_time << "ms" << endl;
+        cout << "STEP-4. Basis gate decomposition time: " << (IdxType)decompose_time << "ms" << endl;
         cout << " total QASMTrans time: " << (IdxType)(initial_decompose_time + routing_time + decompose_time) << "ms" << endl;
     }
 }
