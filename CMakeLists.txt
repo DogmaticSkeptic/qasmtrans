@@ -22,3 +22,16 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
 
 # Add executable
 add_executable(QASMTrans src/qasmtrans.cpp)
+
+# Make the project's headers and the Lemon headers visible to the target
+target_include_directories(QASMTrans
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+# Search Lemon headers after the standard library so they don't shadow libc++ <math.h>
+target_compile_options(QASMTrans
+    PRIVATE
+        "-iquote${CMAKE_CURRENT_SOURCE_DIR}/../lemon"
+        "-idirafter${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
