@@ -41,6 +41,9 @@ x64/
 x86/
 *.dir/
 
+# Output files
+data/output/
+
 # Other
 .DS_Store
 .vscode/

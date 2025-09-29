@@ -4,14 +4,34 @@
 #include <cctype>
 #include <iostream>
 #include <sstream>
+#include <filesystem>
+#include <exception>
 
 #include "../include/QASMTransPrimitives.hpp"
+#include "../include/dump_pulses.hpp"
 #include "../include/IR/chip.hpp"
 #include "../include/parser/parser_util.hpp"
 #include "../include/parser/qasm_parser.hpp"
 #include "../include/circuit_passes/transpiler.hpp"
 
 using namespace QASMTrans;
+
+namespace
+{
+    std::string derivePulseOutputPath(const std::string &qasm_output_path)
+    {
+        namespace fs = std::filesystem;
+        fs::path qasm_path(qasm_output_path);
+        fs::path directory = qasm_path.parent_path();
+        std::string stem = qasm_path.stem().string();
+        if (stem.empty())
+        {
+            stem = qasm_path.filename().string();
+        }
+        fs::path candidate = directory / (stem + "_pulses.json");
+        return candidate.string();
+    }
+}
 
 void print_help()
 {
@@ -28,6 +48,7 @@ void print_help()
     std::cout << "-v <0/1/2>        Set the output level, default is 0" << std::endl;
     std::cout << "-o <path>         Set the output file, "
         << "default is data/output/transpiled_modename_filename.qasm" << std::endl;
+    std::cout << "-p <path>         Pulse template json (optional; enables pulse dumping)" << std::endl;
     std::cout << "-h                print the help function" << std::endl;
 }
 
@@ -38,6 +59,7 @@ int main(int argc, char **argv)
     std::string mode_name = "ibmq";
     IdxType debug_level = 0;
     std::string output_path = "../data/output/";
+    std::string pulse_template_path;
     std::map<std::string, IdxType> machineQubits = {
         {"ibmq_toronto", 27},
         {"ibmq_jakarta", 7},
@@ -77,6 +99,10 @@ int main(int argc, char **argv)
         if (cmdOptionExists(argv, argv + argc, "-o"))
         {
             output_path = std::string(getCmdOption(argv, argv + argc, "-o"));
+        }
+        if (cmdOptionExists(argv, argv + argc, "-p"))
+        {
+            pulse_template_path = std::string(getCmdOption(argv, argv + argc, "-p"));
         }
         if (cmdOptionExists(argv, argv + argc, "-backend_list"))
         {
@@ -151,6 +177,14 @@ int main(int argc, char **argv)
                 cout << "Backend (topology): " << backendpath
                      << " (" << chip->chip_qubit_num << " physical qubits)" << endl;
                 cout << "Limit mode: " << (run_with_limit ? "True" : "False") << endl;
+                if (!pulse_template_path.empty())
+                {
+                    cout << "Pulse template: " << pulse_template_path << endl;
+                }
+                else
+                {
+                    cout << "Pulse template: (not provided; skipping pulse dump)" << endl;
+                }
             }
             //================= Transpilation ==================
             if (circuit->is_empty())
@@ -163,6 +197,24 @@ int main(int argc, char **argv)
             //================= Write out ==================
             dumpQASM(circuit, filename, output_path, debug_level, mode);
             cout << "Saving output qasm to: " << output_path << endl;
+            if (!pulse_template_path.empty())
+            {
+                try
+                {
+                    std::string pulses_output_path = derivePulseOutputPath(output_path);
+                    dumpPulses(circuit, filename, backendpath, pulse_template_path, pulses_output_path, debug_level);
+                    cout << "Saving output pulses to: " << pulses_output_path << endl;
+                }
+                catch (const std::exception &ex)
+                {
+                    cerr << "Error while generating pulses: " << ex.what() << endl;
+                    return 1;
+                }
+            }
+            else if (debug_level > 0)
+            {
+                cout << "Pulse template not provided; skipping pulse dump." << endl;
+            }
             return 0;
         }
     }
