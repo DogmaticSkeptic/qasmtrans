@@ -1,5 +1,5 @@
 # Specify the minimum version for CMake
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.20)
 
 # Setup cc/CC
 if(DEFINED ENV{cc} AND DEFINED ENV{CC})
@@ -20,5 +20,19 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 # Set the -O3 optimization flag for all configurations
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
 
+# Set pybind environment stuff
+
+set(Python3_EXECUTABLE "$ENV{CONDA_PREFIX}/bin/python" CACHE FILEPATH "")
+set(Python3_ROOT_DIR "$ENV{CONDA_PREFIX}" CACHE PATH "")
+set(pybind11_DIR "$ENV{CONDA_PREFIX}/share/cmake/pybind11" CACHE PATH "")
+set(CMAKE_PREFIX_PATH "$ENV{CONDA_PREFIX}" CACHE PATH "")
+
+find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+find_package(pybind11 CONFIG REQUIRED)
+
 # Add executable
 add_executable(QASMTrans src/qasmtrans.cpp)
+
+
+# Link pybind
+target_link_libraries(QASMTrans PRIVATE pybind11::embed Python3::Python)
