@@ -30,9 +30,12 @@ namespace QASMTrans
             std::string gate;
             std::vector<IdxType> qubits;
             std::string shape;
+            std::string waveform_type;
             ValType width = 0.0;
             ValType amplitude = 0.0;
             std::string note;
+            std::vector<ValType> samples_i;
+            std::vector<ValType> samples_q;
         };
 
         struct PulseTemplateLibrary
@@ -107,21 +110,6 @@ namespace QASMTrans
             return qubits;
         }
 
-        inline std::string backendLensKey(const std::string &gate, const std::vector<IdxType> &qubits)
-        {
-            std::ostringstream oss;
-            oss << gate;
-            if (!qubits.empty())
-            {
-                oss << qubits[0];
-                for (size_t i = 1; i < qubits.size(); ++i)
-                {
-                    oss << '_' << qubits[i];
-                }
-            }
-            return oss.str();
-        }
-
         inline PulseTemplateLibrary loadPulseTemplate(const std::string &template_path)
         {
             PulseTemplateLibrary library;
@@ -143,10 +131,19 @@ namespace QASMTrans
                 definition.gate = toLower(entry.value("gate", std::string{}));
                 definition.qubits = entry.value("qubits", std::vector<IdxType>{});
                 definition.shape = entry.value("shape", std::string{});
+                definition.waveform_type = entry.value("waveform_type", std::string{});
                 definition.width = entry.value("width", ValType{0.0});
                 definition.amplitude = entry.value("amplitude", ValType{0.0});
                 definition.note = entry.value("note", std::string{});
                 definition.id = entry.value("id", std::string{});
+                if (entry.contains("samples_i") && entry["samples_i"].is_array())
+                {
+                    definition.samples_i = entry["samples_i"].get<std::vector<ValType>>();
+                }
+                if (entry.contains("samples_q") && entry["samples_q"].is_array())
+                {
+                    definition.samples_q = entry["samples_q"].get<std::vector<ValType>>();
+                }
                 if (definition.gate.empty() || definition.qubits.empty())
                 {
                     continue;
@@ -154,6 +151,10 @@ namespace QASMTrans
                 if (definition.id.empty())
                 {
                     definition.id = makePulseIdentifier(definition.gate, definition.qubits);
+                }
+                if (definition.waveform_type.empty())
+                {
+                    definition.waveform_type = definition.shape;
                 }
                 const std::string key = makePulseKey(definition.gate, definition.qubits);
                 library.definitions.insert({key, definition});
@@ -182,33 +183,6 @@ namespace QASMTrans
             return data;
         }
 
-        inline PulseDefinition makeFallbackDefinition(const std::string &gate,
-                                                      const std::vector<IdxType> &qubits,
-                                                      const BackendTimingData &backend)
-        {
-            PulseDefinition fallback;
-            fallback.gate = gate;
-            fallback.qubits = qubits;
-            fallback.shape = "gaussian";
-            const std::string lens_key = backendLensKey(gate, qubits);
-            auto length_it = backend.gate_lengths.find(lens_key);
-            fallback.width = (length_it != backend.gate_lengths.end()) ? length_it->second : ValType{0.0};
-            if (gate == "rz")
-            {
-                fallback.amplitude = 0.0;
-            }
-            else if (qubits.size() > 1)
-            {
-                fallback.amplitude = 0.2;
-            }
-            else
-            {
-                fallback.amplitude = 0.1;
-            }
-            fallback.note = "auto-generated fallback for missing pulse template";
-            fallback.id = makePulseIdentifier(gate, qubits);
-            return fallback;
-        }
     } // namespace pulses
 
     inline void dumpPulses(std::shared_ptr<Circuit> circuit,
@@ -226,7 +200,6 @@ namespace QASMTrans
         std::set<std::string> used_keys;
         std::vector<json> schedule;
         std::unordered_map<IdxType, ValType> availability;
-        std::vector<std::string> missing_definitions;
 
         const std::vector<Gate> gates = circuit->get_gates();
         size_t gate_index = 0;
@@ -250,12 +223,19 @@ namespace QASMTrans
             auto def_it = definitions.find(key);
             if (def_it == definitions.end())
             {
-                PulseDefinition fallback = makeFallbackDefinition(gate_name, qubits, backend);
-                definitions.insert({key, fallback});
-                def_it = definitions.find(key);
-                missing_definitions.push_back(key);
+                throw std::logic_error(
+                    "Pulse template missing definition for gate '" + gate_name + "' on qubits [" +
+                    joinQubits(qubits, ",") + "]");
             }
             const PulseDefinition &definition = def_it->second;
+            if (toLower(definition.waveform_type) == "arbitrary")
+            {
+                if (definition.samples_i.empty() && definition.samples_q.empty())
+                {
+                    throw std::logic_error("Arbitrary waveform for gate '" + gate_name + "' on qubits [" +
+                                           joinQubits(qubits, ",") + "] is missing samples");
+                }
+            }
             ValType start_time = 0.0;
             for (auto q : qubits)
             {
@@ -316,11 +296,23 @@ namespace QASMTrans
             {
                 entry["shape"] = definition.shape;
             }
+            if (!definition.waveform_type.empty())
+            {
+                entry["waveform_type"] = definition.waveform_type;
+            }
             entry["width"] = definition.width;
             entry["amplitude"] = definition.amplitude;
             if (!definition.note.empty())
             {
                 entry["note"] = definition.note;
+            }
+            if (!definition.samples_i.empty())
+            {
+                entry["samples_i"] = definition.samples_i;
+            }
+            if (!definition.samples_q.empty())
+            {
+                entry["samples_q"] = definition.samples_q;
             }
             pulse_library.push_back(entry);
         }
@@ -339,11 +331,6 @@ namespace QASMTrans
             total_duration = std::max(total_duration, pair.second);
         }
         backend_info["total_duration"] = total_duration;
-        if (!missing_definitions.empty())
-        {
-            backend_info["auto_generated_pulses"] = missing_definitions;
-        }
-
         json output;
         output["backend"] = backend_info;
         output["pulse_library"] = pulse_library;
