@@ -16,20 +16,20 @@
       "qubits": [
         0
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 9.935529782801556e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "rz",
       "qubits": [
         0
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 0,
       "amplitude": 0.0,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "sx",
@@ -39,7 +39,7 @@
       "shape": "gaussian",
       "width": 5.6824820486705e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "x",
@@ -49,37 +49,37 @@
       "shape": "gaussian",
       "width": 6.2059031647104725e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "reset",
       "qubits": [
         0
       ],
-      "shape": "gaussian",
+      "shape": "flat_top",
       "width": 5.959701952501232e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "flat_top"
     },
     {
       "gate": "id",
       "qubits": [
         1
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 4.792485057633501e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "rz",
       "qubits": [
         1
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 0,
       "amplitude": 0.0,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "sx",
@@ -89,7 +89,7 @@
       "shape": "gaussian",
       "width": 8.401986797842924e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "x",
@@ -99,47 +99,65 @@
       "shape": "gaussian",
       "width": 3.872626147327059e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "reset",
       "qubits": [
         1
       ],
-      "shape": "gaussian",
+      "shape": "flat_top",
       "width": 1.1436902982735598e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "flat_top"
     },
     {
       "gate": "id",
       "qubits": [
         2
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 3.832554084727858e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "rz",
       "qubits": [
         2
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 0,
       "amplitude": 0.0,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "sx",
       "qubits": [
         2
       ],
-      "shape": "gaussian",
+      "shape": "arbitrary",
       "width": 6.308619091157248e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "arbitrary",
+      "samples_i": [
+        0.0,
+        0.05,
+        0.18,
+        0.26,
+        0.18,
+        0.05,
+        0.0
+      ],
+      "samples_q": [
+        0.0,
+        0.02,
+        0.06,
+        0.0,
+        -0.06,
+        -0.02,
+        0.0
+      ]
     },
     {
       "gate": "x",
@@ -149,37 +167,37 @@
       "shape": "gaussian",
       "width": 4.7782116558890175e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "reset",
       "qubits": [
         2
       ],
-      "shape": "gaussian",
+      "shape": "flat_top",
       "width": 4.795618703401976e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "flat_top"
     },
     {
       "gate": "id",
       "qubits": [
         3
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 3.763638537930393e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "rz",
       "qubits": [
         3
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 0,
       "amplitude": 0.0,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "sx",
@@ -189,7 +207,7 @@
       "shape": "gaussian",
       "width": 2.696718911388076e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "x",
@@ -199,37 +217,37 @@
       "shape": "gaussian",
       "width": 7.124985796997377e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "reset",
       "qubits": [
         3
       ],
-      "shape": "gaussian",
+      "shape": "flat_top",
       "width": 9.11146722066241e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "flat_top"
     },
     {
       "gate": "id",
       "qubits": [
         4
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 8.384050038408704e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "rz",
       "qubits": [
         4
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 0,
       "amplitude": 0.0,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "sx",
@@ -239,7 +257,7 @@
       "shape": "gaussian",
       "width": 6.803369031928648e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "x",
@@ -249,37 +267,37 @@
       "shape": "gaussian",
       "width": 3.4907307905241426e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "reset",
       "qubits": [
         4
       ],
-      "shape": "gaussian",
+      "shape": "flat_top",
       "width": 6.924881687320423e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "flat_top"
     },
     {
       "gate": "id",
       "qubits": [
         5
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 8.42347165958595e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "rz",
       "qubits": [
         5
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 0,
       "amplitude": 0.0,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "sx",
@@ -289,7 +307,7 @@
       "shape": "gaussian",
       "width": 7.658189860139907e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "x",
@@ -299,37 +317,37 @@
       "shape": "gaussian",
       "width": 6.24883338560741e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "reset",
       "qubits": [
         5
       ],
-      "shape": "gaussian",
+      "shape": "flat_top",
       "width": 1.4953604098796658e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "flat_top"
     },
     {
       "gate": "id",
       "qubits": [
         6
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 6.86450877270859e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "rz",
       "qubits": [
         6
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 0,
       "amplitude": 0.0,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "sx",
@@ -339,7 +357,7 @@
       "shape": "gaussian",
       "width": 1.5228169776447497e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "x",
@@ -349,37 +367,37 @@
       "shape": "gaussian",
       "width": 7.493557896098395e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "reset",
       "qubits": [
         6
       ],
-      "shape": "gaussian",
+      "shape": "flat_top",
       "width": 8.561164050761504e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "flat_top"
     },
     {
       "gate": "id",
       "qubits": [
         7
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 9.438136440024347e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "rz",
       "qubits": [
         7
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 0,
       "amplitude": 0.0,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "sx",
@@ -389,7 +407,7 @@
       "shape": "gaussian",
       "width": 7.662655854853978e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "x",
@@ -399,37 +417,37 @@
       "shape": "gaussian",
       "width": 3.0701492299496705e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "reset",
       "qubits": [
         7
       ],
-      "shape": "gaussian",
+      "shape": "flat_top",
       "width": 9.058123328074909e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "flat_top"
     },
     {
       "gate": "id",
       "qubits": [
         8
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 9.475648009215487e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "rz",
       "qubits": [
         8
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 0,
       "amplitude": 0.0,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "sx",
@@ -439,7 +457,7 @@
       "shape": "gaussian",
       "width": 6.1978547900223435e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "x",
@@ -449,37 +467,37 @@
       "shape": "gaussian",
       "width": 9.8740189499255e-10,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "reset",
       "qubits": [
         8
       ],
-      "shape": "gaussian",
+      "shape": "flat_top",
       "width": 2.4994321903671424e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "flat_top"
     },
     {
       "gate": "id",
       "qubits": [
         9
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 5.123533673088439e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "rz",
       "qubits": [
         9
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 0,
       "amplitude": 0.0,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "sx",
@@ -489,7 +507,7 @@
       "shape": "gaussian",
       "width": 5.113269086450112e-10,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "x",
@@ -499,37 +517,37 @@
       "shape": "gaussian",
       "width": 5.025740171181011e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "reset",
       "qubits": [
         9
       ],
-      "shape": "gaussian",
+      "shape": "flat_top",
       "width": 4.407756309441864e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "flat_top"
     },
     {
       "gate": "id",
       "qubits": [
         10
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 4.718566257812007e-10,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "rz",
       "qubits": [
         10
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 0,
       "amplitude": 0.0,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "sx",
@@ -539,7 +557,7 @@
       "shape": "gaussian",
       "width": 3.974057315973043e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "x",
@@ -549,37 +567,37 @@
       "shape": "gaussian",
       "width": 3.551641595909305e-10,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "reset",
       "qubits": [
         10
       ],
-      "shape": "gaussian",
+      "shape": "flat_top",
       "width": 7.0068240018991335e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "flat_top"
     },
     {
       "gate": "id",
       "qubits": [
         11
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 5.45662377067357e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "rz",
       "qubits": [
         11
       ],
-      "shape": "gaussian",
+      "shape": "constant",
       "width": 0,
       "amplitude": 0.0,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "constant"
     },
     {
       "gate": "sx",
@@ -589,7 +607,7 @@
       "shape": "gaussian",
       "width": 1.9820246178130385e-10,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "x",
@@ -599,17 +617,17 @@
       "shape": "gaussian",
       "width": 3.0735701818823204e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "reset",
       "qubits": [
         11
       ],
-      "shape": "gaussian",
+      "shape": "flat_top",
       "width": 3.900281525943184e-09,
       "amplitude": 0.1,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "flat_top"
     },
     {
       "gate": "cx",
@@ -617,10 +635,28 @@
         0,
         1
       ],
-      "shape": "gaussian",
+      "shape": "arbitrary",
       "width": 6.002854781083764e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "arbitrary",
+      "samples_i": [
+        0.0,
+        0.08,
+        0.24,
+        0.32,
+        0.24,
+        0.08,
+        0.0
+      ],
+      "samples_q": [
+        0.0,
+        0.05,
+        0.12,
+        0.0,
+        -0.12,
+        -0.05,
+        0.0
+      ]
     },
     {
       "gate": "cx",
@@ -631,7 +667,7 @@
       "shape": "gaussian",
       "width": 9.47285719008385e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -642,7 +678,7 @@
       "shape": "gaussian",
       "width": 8.817455754771349e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -653,7 +689,7 @@
       "shape": "gaussian",
       "width": 7.26360110347087e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -664,7 +700,7 @@
       "shape": "gaussian",
       "width": 2.4366367316579463e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -675,7 +711,7 @@
       "shape": "gaussian",
       "width": 9.554875481498671e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -686,7 +722,7 @@
       "shape": "gaussian",
       "width": 7.082189415704945e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -697,7 +733,7 @@
       "shape": "gaussian",
       "width": 1.3346669641523735e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -708,7 +744,7 @@
       "shape": "gaussian",
       "width": 8.313817382113072e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -719,7 +755,7 @@
       "shape": "gaussian",
       "width": 6.493643555955812e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -730,7 +766,7 @@
       "shape": "gaussian",
       "width": 3.3535211716555113e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -741,7 +777,7 @@
       "shape": "gaussian",
       "width": 1.9355609569488397e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -752,7 +788,7 @@
       "shape": "gaussian",
       "width": 5.322096435332929e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -763,7 +799,7 @@
       "shape": "gaussian",
       "width": 2.0116678041488344e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -774,7 +810,7 @@
       "shape": "gaussian",
       "width": 3.771434723751631e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -785,7 +821,7 @@
       "shape": "gaussian",
       "width": 7.397974179776479e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -796,7 +832,7 @@
       "shape": "gaussian",
       "width": 2.8059204714034037e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -807,7 +843,7 @@
       "shape": "gaussian",
       "width": 5.2517063542034295e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -818,7 +854,7 @@
       "shape": "gaussian",
       "width": 4.124068748829708e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -829,7 +865,7 @@
       "shape": "gaussian",
       "width": 9.301490648070548e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -840,7 +876,7 @@
       "shape": "gaussian",
       "width": 8.08715550881769e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -851,7 +887,7 @@
       "shape": "gaussian",
       "width": 7.527831046745606e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -862,7 +898,7 @@
       "shape": "gaussian",
       "width": 4.270585423241079e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -873,7 +909,7 @@
       "shape": "gaussian",
       "width": 6.75574960083038e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -884,7 +920,7 @@
       "shape": "gaussian",
       "width": 5.308115086856142e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -895,7 +931,7 @@
       "shape": "gaussian",
       "width": 9.12317664548115e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -906,7 +942,7 @@
       "shape": "gaussian",
       "width": 4.72621194284944e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -917,7 +953,7 @@
       "shape": "gaussian",
       "width": 1.7040688247859705e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -928,7 +964,7 @@
       "shape": "gaussian",
       "width": 9.350640238354335e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -939,7 +975,7 @@
       "shape": "gaussian",
       "width": 9.37876079709371e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -950,7 +986,7 @@
       "shape": "gaussian",
       "width": 3.299683229326278e-10,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -961,7 +997,7 @@
       "shape": "gaussian",
       "width": 6.348716531279568e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -972,7 +1008,7 @@
       "shape": "gaussian",
       "width": 2.2704841845541403e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -983,7 +1019,7 @@
       "shape": "gaussian",
       "width": 6.660430301414118e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -994,7 +1030,7 @@
       "shape": "gaussian",
       "width": 5.518422146895731e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1005,7 +1041,7 @@
       "shape": "gaussian",
       "width": 4.930559672251528e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1016,7 +1052,7 @@
       "shape": "gaussian",
       "width": 3.634369967021334e-10,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1027,7 +1063,7 @@
       "shape": "gaussian",
       "width": 2.008906379012114e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1038,7 +1074,7 @@
       "shape": "gaussian",
       "width": 5.8626762369055484e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1049,7 +1085,7 @@
       "shape": "gaussian",
       "width": 9.728937434716116e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1060,7 +1096,7 @@
       "shape": "gaussian",
       "width": 3.5932345945896348e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1071,7 +1107,7 @@
       "shape": "gaussian",
       "width": 9.389522543873934e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1082,7 +1118,7 @@
       "shape": "gaussian",
       "width": 5.7828128930197755e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1093,7 +1129,7 @@
       "shape": "gaussian",
       "width": 6.972485336952828e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1104,7 +1140,7 @@
       "shape": "gaussian",
       "width": 1.3541803367578909e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1115,7 +1151,7 @@
       "shape": "gaussian",
       "width": 7.371074612164789e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1126,7 +1162,7 @@
       "shape": "gaussian",
       "width": 7.673614915767382e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1137,7 +1173,7 @@
       "shape": "gaussian",
       "width": 4.145142684397909e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1148,7 +1184,7 @@
       "shape": "gaussian",
       "width": 2.4372140639204874e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1159,7 +1195,7 @@
       "shape": "gaussian",
       "width": 7.898236136750465e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1170,7 +1206,7 @@
       "shape": "gaussian",
       "width": 8.935195046787395e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1181,7 +1217,7 @@
       "shape": "gaussian",
       "width": 6.637605105139684e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1192,7 +1228,7 @@
       "shape": "gaussian",
       "width": 6.978697495756655e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1203,7 +1239,7 @@
       "shape": "gaussian",
       "width": 2.393823034290039e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1214,7 +1250,7 @@
       "shape": "gaussian",
       "width": 5.529168023388025e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1225,7 +1261,7 @@
       "shape": "gaussian",
       "width": 7.175662409987416e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1236,7 +1272,7 @@
       "shape": "gaussian",
       "width": 1.833163560393043e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1247,7 +1283,7 @@
       "shape": "gaussian",
       "width": 4.366979837575628e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1258,7 +1294,7 @@
       "shape": "gaussian",
       "width": 5.777062052953648e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1269,7 +1305,7 @@
       "shape": "gaussian",
       "width": 4.961547571263231e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1280,7 +1316,7 @@
       "shape": "gaussian",
       "width": 7.279270772689192e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1291,7 +1327,7 @@
       "shape": "gaussian",
       "width": 8.3961452379251e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1302,7 +1338,7 @@
       "shape": "gaussian",
       "width": 7.594443460608067e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1313,7 +1349,7 @@
       "shape": "gaussian",
       "width": 5.219475015738273e-11,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1324,7 +1360,7 @@
       "shape": "gaussian",
       "width": 8.069832178255809e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1335,7 +1371,7 @@
       "shape": "gaussian",
       "width": 4.3264009234239567e-11,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1346,7 +1382,7 @@
       "shape": "gaussian",
       "width": 6.165601811908097e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1357,7 +1393,7 @@
       "shape": "gaussian",
       "width": 1.5733254893683946e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1368,7 +1404,7 @@
       "shape": "gaussian",
       "width": 5.2132489332892295e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1379,7 +1415,7 @@
       "shape": "gaussian",
       "width": 9.481374535282402e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1390,7 +1426,7 @@
       "shape": "gaussian",
       "width": 5.593091835844627e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1401,7 +1437,7 @@
       "shape": "gaussian",
       "width": 4.713138552793214e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1412,7 +1448,7 @@
       "shape": "gaussian",
       "width": 7.051067478366614e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1423,7 +1459,7 @@
       "shape": "gaussian",
       "width": 3.552965752268644e-10,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1434,7 +1470,7 @@
       "shape": "gaussian",
       "width": 7.93693031835973e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1445,7 +1481,7 @@
       "shape": "gaussian",
       "width": 5.664743433867619e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1456,7 +1492,7 @@
       "shape": "gaussian",
       "width": 9.431319760587871e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1467,7 +1503,7 @@
       "shape": "gaussian",
       "width": 1.7225919532917744e-10,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1478,7 +1514,7 @@
       "shape": "gaussian",
       "width": 5.683120109696971e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1489,7 +1525,7 @@
       "shape": "gaussian",
       "width": 4.516722479912875e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1500,7 +1536,7 @@
       "shape": "gaussian",
       "width": 1.2864782893581028e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1511,7 +1547,7 @@
       "shape": "gaussian",
       "width": 3.182994232176315e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1522,7 +1558,7 @@
       "shape": "gaussian",
       "width": 8.581535237995613e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1533,7 +1569,7 @@
       "shape": "gaussian",
       "width": 2.5984474029058514e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1544,7 +1580,7 @@
       "shape": "gaussian",
       "width": 9.38705840295226e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1555,7 +1591,7 @@
       "shape": "gaussian",
       "width": 7.041132819022867e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1566,7 +1602,7 @@
       "shape": "gaussian",
       "width": 9.909727108810486e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1577,7 +1613,7 @@
       "shape": "gaussian",
       "width": 9.709346081641443e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1588,7 +1624,7 @@
       "shape": "gaussian",
       "width": 9.11819214562181e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1599,7 +1635,7 @@
       "shape": "gaussian",
       "width": 9.79302457190527e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1610,7 +1646,7 @@
       "shape": "gaussian",
       "width": 9.29529575096657e-10,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1621,7 +1657,7 @@
       "shape": "gaussian",
       "width": 6.8854865704657285e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1632,7 +1668,7 @@
       "shape": "gaussian",
       "width": 7.434944037700325e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1643,7 +1679,7 @@
       "shape": "gaussian",
       "width": 5.507554926271019e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1654,7 +1690,7 @@
       "shape": "gaussian",
       "width": 4.620954708675845e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1665,7 +1701,7 @@
       "shape": "gaussian",
       "width": 9.909791264031759e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1676,7 +1712,7 @@
       "shape": "gaussian",
       "width": 4.752496189522471e-10,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1687,7 +1723,7 @@
       "shape": "gaussian",
       "width": 4.160018168738933e-10,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1698,7 +1734,7 @@
       "shape": "gaussian",
       "width": 7.761290205022312e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1709,7 +1745,7 @@
       "shape": "gaussian",
       "width": 5.30524331296666e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1720,7 +1756,7 @@
       "shape": "gaussian",
       "width": 1.9678373529621963e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1731,7 +1767,7 @@
       "shape": "gaussian",
       "width": 9.452677418741163e-10,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1742,7 +1778,7 @@
       "shape": "gaussian",
       "width": 6.499542668772519e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1753,7 +1789,7 @@
       "shape": "gaussian",
       "width": 5.117027016480123e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1764,7 +1800,7 @@
       "shape": "gaussian",
       "width": 3.7930280182468634e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1775,7 +1811,7 @@
       "shape": "gaussian",
       "width": 4.59208589439042e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1786,7 +1822,7 @@
       "shape": "gaussian",
       "width": 4.527010693010923e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1797,7 +1833,7 @@
       "shape": "gaussian",
       "width": 8.018584875043732e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1808,7 +1844,7 @@
       "shape": "gaussian",
       "width": 2.765881579726537e-10,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1819,7 +1855,7 @@
       "shape": "gaussian",
       "width": 7.168582540671673e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1830,7 +1866,7 @@
       "shape": "gaussian",
       "width": 9.269799699420034e-10,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1841,7 +1877,7 @@
       "shape": "gaussian",
       "width": 6.115722135345234e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1852,7 +1888,7 @@
       "shape": "gaussian",
       "width": 2.0749674877892255e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1863,7 +1899,7 @@
       "shape": "gaussian",
       "width": 2.549580525060616e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1874,7 +1910,7 @@
       "shape": "gaussian",
       "width": 6.105867896614065e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1885,7 +1921,7 @@
       "shape": "gaussian",
       "width": 4.862126991486578e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1896,7 +1932,7 @@
       "shape": "gaussian",
       "width": 5.125328352571146e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1907,7 +1943,7 @@
       "shape": "gaussian",
       "width": 2.344986007220099e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1918,7 +1954,7 @@
       "shape": "gaussian",
       "width": 3.4885393897361906e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1929,7 +1965,7 @@
       "shape": "gaussian",
       "width": 4.489362923215874e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1940,7 +1976,7 @@
       "shape": "gaussian",
       "width": 6.920321164126454e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1951,7 +1987,7 @@
       "shape": "gaussian",
       "width": 7.755368691996108e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1962,7 +1998,7 @@
       "shape": "gaussian",
       "width": 4.236261044372897e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1973,7 +2009,7 @@
       "shape": "gaussian",
       "width": 4.5805896636912285e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1984,7 +2020,7 @@
       "shape": "gaussian",
       "width": 7.294436104965362e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -1995,7 +2031,7 @@
       "shape": "gaussian",
       "width": 1.62993209370904e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -2006,7 +2042,7 @@
       "shape": "gaussian",
       "width": 4.965458917391498e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -2017,7 +2053,7 @@
       "shape": "gaussian",
       "width": 1.3305242441703758e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -2028,7 +2064,7 @@
       "shape": "gaussian",
       "width": 7.302847645888511e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -2039,7 +2075,7 @@
       "shape": "gaussian",
       "width": 4.127724856939782e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -2050,7 +2086,7 @@
       "shape": "gaussian",
       "width": 3.970372121957489e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     },
     {
       "gate": "cx",
@@ -2061,7 +2097,7 @@
       "shape": "gaussian",
       "width": 7.188165711544501e-09,
       "amplitude": 0.2,
-      "note": "placeholder pulse parameters"
+      "waveform_type": "gaussian"
     }
   ]
 }

@@ -1,0 +1,113 @@
+{
+  "backend": {
+    "name": "test_dummy_backend",
+    "version": "1.0",
+    "input_qasm": "test_program.qasm",
+    "backend_config": "../data/devices/backend_config.json",
+    "pulse_template": "../data/devices/dummy_ibmq12_pulses.json",
+    "num_qubits": 3,
+    "total_pulses": 6,
+    "total_duration": 0.000012
+  },
+  "pulse_library": [
+    {
+      "id": "id_q0",
+      "gate": "id",
+      "qubits": [0],
+      "shape": "constant",
+      "waveform_type": "constant",
+      "width": 5e-09,
+      "amplitude": 0.05
+    },
+    {
+      "id": "reset_q0",
+      "gate": "reset",
+      "qubits": [0],
+      "shape": "flat_top",
+      "waveform_type": "flat_top",
+      "width": 1.5e-08,
+      "amplitude": 0.12
+    },
+    {
+      "id": "sx_q1",
+      "gate": "sx",
+      "qubits": [1],
+      "shape": "gaussian",
+      "waveform_type": "gaussian",
+      "width": 6e-09,
+      "amplitude": 0.1
+    },
+    {
+      "id": "cx_q0_q1",
+      "gate": "cx",
+      "qubits": [0, 1],
+      "shape": "arbitrary",
+      "waveform_type": "arbitrary",
+      "width": 2.5e-08,
+      "amplitude": 0.0,
+      "samples_i": [0.0, 0.08, 0.22, 0.34, 0.28, 0.12, 0.0],
+      "samples_q": [0.0, 0.05, 0.12, 0.0, -0.13, -0.06, 0.0]
+    },
+    {
+      "id": "arb_single_q2",
+      "gate": "sx",
+      "qubits": [2],
+      "shape": "arbitrary",
+      "waveform_type": "arbitrary",
+      "width": 1.8e-08,
+      "amplitude": 0.0,
+      "samples_i": [0.0, 0.04, 0.15, 0.24, 0.18, 0.06, 0.0],
+      "samples_q": [0.0, 0.02, 0.07, 0.0, -0.07, -0.02, 0.0]
+    }
+  ],
+  "schedule": [
+    {
+      "index": 0,
+      "gate": "id",
+      "qubits": [0],
+      "pulse_id": "id_q0",
+      "start_time": 0.0,
+      "duration": 5e-09
+    },
+    {
+      "index": 1,
+      "gate": "sx",
+      "qubits": [1],
+      "pulse_id": "sx_q1",
+      "start_time": 6e-09,
+      "duration": 6e-09
+    },
+    {
+      "index": 2,
+      "gate": "reset",
+      "qubits": [0],
+      "pulse_id": "reset_q0",
+      "start_time": 1.5e-08,
+      "duration": 1.5e-08
+    },
+    {
+      "index": 3,
+      "gate": "cx",
+      "qubits": [0, 1],
+      "pulse_id": "cx_q0_q1",
+      "start_time": 3.5e-08,
+      "duration": 2.5e-08
+    },
+    {
+      "index": 4,
+      "gate": "sx",
+      "qubits": [2],
+      "pulse_id": "arb_single_q2",
+      "start_time": 6.5e-08,
+      "duration": 1.8e-08
+    },
+    {
+      "index": 5,
+      "gate": "sx",
+      "qubits": [1],
+      "pulse_id": "sx_q1",
+      "start_time": 8.8e-08,
+      "duration": 6e-09
+    }
+  ]
+}
