@@ -31,7 +31,10 @@ find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
 find_package(pybind11 CONFIG REQUIRED)
 
 # Add executable
-add_executable(QASMTrans src/qasmtrans.cpp)
+add_executable(QASMTrans
+    src/qasmtrans.cpp
+    src/qick_emitter.cpp
+)
 
 
 # Link pybind

@@ -2,8 +2,9 @@
 """Play pulse schedules produced by QASMTrans on a QICK board."""
 import argparse
 import json
+import math
 import sys
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from qick import AveragerProgram, QickSoc
@@ -40,12 +41,27 @@ def prepare_events(pulse_doc, cfg):
     lib = {p["id"]: p for p in pulse_doc.get("pulse_library", [])}
     qubit_gen_map = cfg.get("qubit_gen_map", {})
     events = []
+    frame_phases = defaultdict(float)
     for item in pulse_doc.get("schedule", []):
         qubits = item.get("qubits") or []
         if not qubits:
             continue
         pulse = lib.get(item.get("pulse_id"))
         if pulse is None:
+            continue
+        waveform_type = str(pulse.get("waveform_type", "")).lower()
+        is_virtual = bool(pulse.get("virtual")) or waveform_type == "virtual" or bool(item.get("virtual"))
+        if is_virtual:
+            theta = None
+            parameters = item.get("parameters")
+            if isinstance(parameters, dict):
+                theta = parameters.get("theta")
+            if theta is None:
+                theta = (pulse.get("parameters") or {}).get("theta")
+            if theta is not None:
+                theta_value = float(theta)
+                for q in qubits:
+                    frame_phases[str(q)] += theta_value
             continue
         duration = item.get("duration", pulse.get("width", 0.0))
         if float(duration) <= 0:
@@ -68,6 +84,7 @@ def prepare_events(pulse_doc, cfg):
             amplitude = max(peak_i, peak_q)
         else:
             amplitude = float(pulse.get("amplitude", 0.0))
+        phase_shifts_deg = [math.degrees(frame_phases[str(q)]) for q in qubits]
         events.append(
             {
                 "gate": item.get("gate", ""),
@@ -82,6 +99,7 @@ def prepare_events(pulse_doc, cfg):
                 "waveform_type": pulse.get("waveform_type", pulse.get("shape")),
                 "samples_i": samples_i,
                 "samples_q": samples_q,
+                "phase_shifts_deg": phase_shifts_deg,
             }
         )
     events.sort(key=lambda e: e["start_time_s"])
@@ -113,6 +131,7 @@ class TranspiledPulseProgram(AveragerProgram):
         start_offset = float(cfg.get("start_offset", 0.0))
         default_phase = cfg.get("default_phase_deg", 0.0)
         qubit_freqs = {str(k): v for k, v in cfg.get("qubit_freqs", {}).items()}
+        channel_base_phase = {}
         for qubit, ch in cfg.get("qubit_gen_map", {}).items():
             freq = qubit_freqs.get(str(qubit), cfg.get("pulse_freq"))
             if freq is None:
@@ -124,6 +143,7 @@ class TranspiledPulseProgram(AveragerProgram):
                 phase=self.deg2reg(default_phase, gen_ch=ch),
                 gain=min(gain_max, int(cfg.get("default_gain", gain_scale))),
             )
+            channel_base_phase[int(ch)] = default_phase
         loaded_waveforms = set()
         for event in self.events:
             channel_specs = []
@@ -131,12 +151,19 @@ class TranspiledPulseProgram(AveragerProgram):
             waveform_type = (event.get("waveform_type") or "").lower()
             samples_i = event.get("samples_i") or []
             samples_q = event.get("samples_q") or []
-            for ch in channels:
+            phase_shifts = event.get("phase_shifts_deg") or []
+            for idx, ch in enumerate(channels):
                 if ch is None:
                     continue
                 length = max(1, int(round(self.us2cycles(event["width_s"] * 1e6, gen_ch=ch))))
                 start = int(round(self.us2cycles((event["start_time_s"] + start_offset) * 1e6, gen_ch=ch)))
                 gain = min(gain_max, int(round(event["amplitude"] * gain_scale)))
+                shift = phase_shifts[idx] if idx < len(phase_shifts) else (phase_shifts[-1] if phase_shifts else 0.0)
+                base_phase = channel_base_phase.get(int(ch), default_phase)
+                total_phase = base_phase + shift
+                # Keep the phase within 0..360 for numerical stability
+                total_phase = (total_phase + 360.0) % 360.0
+                phase_reg = self.deg2reg(total_phase, gen_ch=ch)
                 waveform_name = None
                 style = "const"
                 if waveform_type in {"arbitrary", "arb"} and samples_i:
@@ -165,6 +192,7 @@ class TranspiledPulseProgram(AveragerProgram):
                         "gain": gain,
                         "style": style,
                         "waveform": waveform_name,
+                        "phase": phase_reg,
                     }
                 )
             if not channel_specs:
@@ -195,6 +223,8 @@ class TranspiledPulseProgram(AveragerProgram):
                     kwargs["length"] = ch_spec["length"]
                 if ch_spec.get("waveform"):
                     kwargs["waveform"] = ch_spec["waveform"]
+                if ch_spec.get("phase") is not None:
+                    kwargs["phase"] = ch_spec["phase"]
                 self.set_pulse_registers(**kwargs)
             for ch_spec in spec["channels"]:
                 self.pulse(ch=ch_spec["ch"], t=ch_spec["start"])

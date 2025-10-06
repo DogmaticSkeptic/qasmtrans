@@ -13,6 +13,7 @@
 #include "../include/parser/parser_util.hpp"
 #include "../include/parser/qasm_parser.hpp"
 #include "../include/circuit_passes/transpiler.hpp"
+#include "../include/qick_emitter.hpp"
 
 using namespace QASMTrans;
 
@@ -49,6 +50,8 @@ void print_help()
     std::cout << "-o <path>         Set the output file, "
         << "default is data/output/transpiled_modename_filename.qasm" << std::endl;
     std::cout << "-p <path>         Pulse template json (optional; enables pulse dumping)" << std::endl;
+    std::cout << "-e <config>       Emit pulses via QICK using the provided QICK config" << std::endl;
+    std::cout << "--emit-run        When paired with -e, stream pulses to hardware (otherwise summary only)" << std::endl;
     std::cout << "-h                print the help function" << std::endl;
 }
 
@@ -60,6 +63,9 @@ int main(int argc, char **argv)
     IdxType debug_level = 0;
     std::string output_path = "../data/output/";
     std::string pulse_template_path;
+    bool emit_requested = false;
+    bool emit_run = false;
+    std::string qick_config_path;
     std::map<std::string, IdxType> machineQubits = {
         {"ibmq_toronto", 27},
         {"ibmq_jakarta", 7},
@@ -103,6 +109,21 @@ int main(int argc, char **argv)
         if (cmdOptionExists(argv, argv + argc, "-p"))
         {
             pulse_template_path = std::string(getCmdOption(argv, argv + argc, "-p"));
+        }
+        if (cmdOptionExists(argv, argv + argc, "-e"))
+        {
+            const char *emit_config = getCmdOption(argv, argv + argc, "-e");
+            if (emit_config == nullptr)
+            {
+                std::cerr << "Error: missing QICK config path after -e" << std::endl;
+                return 1;
+            }
+            qick_config_path = std::string(emit_config);
+            emit_requested = true;
+        }
+        if (cmdOptionExists(argv, argv + argc, "--emit-run"))
+        {
+            emit_run = true;
         }
         if (cmdOptionExists(argv, argv + argc, "-backend_list"))
         {
@@ -161,6 +182,11 @@ int main(int argc, char **argv)
                 cerr << "Error: missing machine backend file via -c" << endl;
                 return 1;
             }
+            if (emit_requested && pulse_template_path.empty())
+            {
+                cerr << "Error: -e requires a pulse template via -p to generate pulses." << endl;
+                return 1;
+            }
             string backendpath = string(getCmdOption(argv, argv + argc, "-c"));
             //================= Parsing ==================
             qasm_parser parser(filename);
@@ -197,11 +223,12 @@ int main(int argc, char **argv)
             //================= Write out ==================
             dumpQASM(circuit, filename, output_path, debug_level, mode);
             cout << "Saving output qasm to: " << output_path << endl;
+            std::string pulses_output_path;
             if (!pulse_template_path.empty())
             {
                 try
                 {
-                    std::string pulses_output_path = derivePulseOutputPath(output_path);
+                    pulses_output_path = derivePulseOutputPath(output_path);
                     dumpPulses(circuit, filename, backendpath, pulse_template_path, pulses_output_path, debug_level);
                     cout << "Saving output pulses to: " << pulses_output_path << endl;
                 }
@@ -214,6 +241,29 @@ int main(int argc, char **argv)
             else if (debug_level > 0)
             {
                 cout << "Pulse template not provided; skipping pulse dump." << endl;
+            }
+
+            if (emit_requested)
+            {
+                if (pulses_output_path.empty())
+                {
+                    cerr << "Error: unable to emit pulses because the pulse schedule was not generated." << endl;
+                    return 1;
+                }
+                try
+                {
+                    bool summary_only = !emit_run;
+                    QASMTrans::pulses::emit_with_qick(pulses_output_path,
+                                                       qick_config_path,
+                                                       emit_run,
+                                                       summary_only,
+                                                       argv[0],
+                                                       debug_level > 0);
+                }
+                catch (const std::exception &)
+                {
+                    return 1;
+                }
             }
             return 0;
         }
