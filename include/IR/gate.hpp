@@ -198,6 +198,14 @@ namespace QASMTrans
          ******************************************/
         ID,
         /******************************************
+         * iSWAP gate: swaps qubits with phase i
+         * iSWAP = [1, 0, 0, 0]
+         *         [0, 0, i, 0]
+         *         [0, i, 0, 0]
+         *         [0, 0, 0, 1]
+         ******************************************/
+        ISWAP,
+        /******************************************
          * SWAP gate: swap the position of two qubits
          * SWAP = [1,0,0,0]
          *        [0,0,1,0]
@@ -283,6 +291,7 @@ namespace QASMTrans
         "RZZ",
         // Other
         "ID",
+        "ISWAP",
         "SWAP",
         "M",
         "MA",

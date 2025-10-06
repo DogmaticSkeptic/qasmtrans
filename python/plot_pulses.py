@@ -18,7 +18,9 @@ def load_json(path: Path):
 
 def build_qubit_events(pulse_doc):
     library = {entry["id"]: entry for entry in pulse_doc.get("pulse_library", [])}
-    events_by_qubit: Dict[str, List[dict]] = defaultdict(list)
+    analog_events_by_qubit: Dict[str, List[dict]] = defaultdict(list)
+    virtual_events_by_qubit: Dict[str, List[dict]] = defaultdict(list)
+    label_sequences: Dict[str, List[dict]] = defaultdict(list)
     for item in pulse_doc.get("schedule", []):
         pulse_id = item.get("pulse_id")
         pulse = library.get(pulse_id, {})
@@ -27,27 +29,41 @@ def build_qubit_events(pulse_doc):
             continue
         start = float(item.get("start_time", 0.0))
         duration = float(item.get("duration", pulse.get("width", 0.0)))
-        if duration <= 0:
-            continue
-        amplitude = float(pulse.get("amplitude", 0.0))
-        label = item.get("gate") or pulse.get("gate") or pulse_id or "pulse"
-        shape = (pulse.get("shape") or "const").lower()
+        gate_name = item.get("gate") or pulse.get("gate") or pulse_id or "pulse"
+        label = gate_name
+        is_virtual = pulse.get("virtual") or str(pulse.get("waveform_type", "")).lower() == "virtual"
+        parameters = pulse.get("parameters", {})
+        theta = parameters.get("theta") or item.get("parameters", {}).get("theta")
         for qubit in qubits:
-            events_by_qubit[str(qubit)].append(
+            bucket = virtual_events_by_qubit if is_virtual else analog_events_by_qubit
+            bucket[str(qubit)].append(
                 {
                     "start_us": start * 1e6,
                     "width_us": duration * 1e6,
-                    "amplitude": amplitude,
-                    "shape": shape,
-                    "waveform_type": (pulse.get("waveform_type") or shape),
                     "label": f"{label}\n({pulse_id})" if pulse_id else label,
+                    "waveform_type": (pulse.get("waveform_type") or "virtual"),
+                    "shape": (pulse.get("shape") or "virtual"),
                     "samples_i": [float(v) for v in pulse.get("samples_i", [])],
                     "samples_q": [float(v) for v in pulse.get("samples_q", [])],
+                    "amplitude": float(pulse.get("amplitude", 0.0)),
+                    "theta": theta,
+                    "virtual": is_virtual,
+                    "gate": gate_name.lower(),
                 }
             )
-    for events in events_by_qubit.values():
+            label_sequences[str(qubit)].append(
+                {
+                    "label": f"{label}\n({pulse_id})" if pulse_id else label,
+                    "theta": theta,
+                    "virtual": is_virtual,
+                    "gate": gate_name.lower(),
+                }
+            )
+    for events in analog_events_by_qubit.values():
         events.sort(key=lambda entry: entry["start_us"])
-    return dict(events_by_qubit)
+    for events in virtual_events_by_qubit.values():
+        events.sort(key=lambda entry: entry["start_us"])
+    return dict(analog_events_by_qubit), dict(virtual_events_by_qubit), dict(label_sequences)
 
 
 def sample_waveform(event: dict, samples_per_us: float):
@@ -90,32 +106,73 @@ def sample_waveform(event: dict, samples_per_us: float):
     return ts, amplitude * envelope, np.zeros_like(envelope)
 
 
-def plot_events(events_by_qubit, title: Optional[str], output_path: Path, dpi: int, samples_per_us: float):
-    if not events_by_qubit:
+def format_theta(theta: float) -> str:
+    if theta is None:
+        return "?"
+    return f"{theta:.3f}"
+
+
+def format_theta_compact(theta: float) -> str:
+    if theta is None:
+        return "?"
+    if np.isclose(theta, np.pi / 2, atol=1e-6):
+        return "pi/2"
+    if np.isclose(theta, -np.pi / 2, atol=1e-6):
+        return "-pi/2"
+    if np.isclose(theta, np.pi, atol=1e-6):
+        return "pi"
+    if np.isclose(theta, -np.pi, atol=1e-6):
+        return "-pi"
+    return f"{theta:.3f}"
+
+
+def plot_events(
+    analog_events_by_qubit,
+    virtual_events_by_qubit,
+    label_sequences,
+    title: Optional[str],
+    output_path: Path,
+    dpi: int,
+    samples_per_us: float,
+):
+    if not analog_events_by_qubit and not virtual_events_by_qubit:
         raise ValueError("No pulse events were found in the schedule.")
 
-    qubit_ids = sorted(events_by_qubit.keys(), key=lambda q: int(q) if str(q).isdigit() else str(q))
-    total_time = max(
-        (event["start_us"] + event["width_us"] for events in events_by_qubit.values() for event in events),
-        default=0.0,
+    qubit_ids = sorted(
+        set(analog_events_by_qubit.keys()) | set(virtual_events_by_qubit.keys()),
+        key=lambda q: int(q) if str(q).isdigit() else str(q),
     )
+    total_time = 0.0
+    for events in list(analog_events_by_qubit.values()) + list(virtual_events_by_qubit.values()):
+        for event in events:
+            total_time = max(total_time, event["start_us"] + event.get("width_us", 0.0))
+    final_xlim_end = total_time * 1.05 if total_time > 0 else 1.0
 
-    fig_height = max(2.5, 2.0 * len(qubit_ids))
-    fig, axes = plt.subplots(len(qubit_ids), 1, sharex=True, figsize=(14, fig_height))
-    if len(qubit_ids) == 1:
-        axes = [axes]
+    waveform_height = 1.8
+    label_height = 0.5
+    height_pattern = []
+    for _ in qubit_ids:
+        height_pattern.extend([label_height, waveform_height])
+    fig_height = max(2.5, sum(height_pattern))
+    fig = plt.figure(figsize=(14, fig_height))
+    grid = fig.add_gridspec(nrows=len(height_pattern), ncols=1, height_ratios=height_pattern)
 
     colors = plt.cm.get_cmap("tab20")
     color_count = colors.N if hasattr(colors, "N") else 20
 
+    last_wave_ax = None
     for idx, qubit in enumerate(qubit_ids):
-        ax = axes[idx]
-        ax.axhline(0.0, color="#cccccc", linewidth=0.8)
-        ax.set_ylabel(f"q{qubit}\nAmplitude")
-        events = events_by_qubit[qubit]
+        wave_ax = fig.add_subplot(grid[2 * idx + 1])
+        label_ax = fig.add_subplot(grid[2 * idx])
+        label_ax.axis("off")
+
+        wave_ax.axhline(0.0, color="#cccccc", linewidth=0.8)
+        wave_ax.set_ylabel(f"q{qubit}\nAmplitude")
+        analog_events = analog_events_by_qubit.get(qubit, [])
+        virt_events = virtual_events_by_qubit.get(qubit, [])
         rendered = []
         max_amp = 1e-3
-        for event in events:
+        for event in analog_events:
             ts, i_samples, q_samples = sample_waveform(event, samples_per_us)
             times = event["start_us"] + ts
             peak = float(max(np.max(np.abs(i_samples)), np.max(np.abs(q_samples)) if np.any(q_samples) else 0.0))
@@ -126,20 +183,55 @@ def plot_events(events_by_qubit, title: Optional[str], output_path: Path, dpi: i
             color = colors(event_idx % color_count)
             label_i = "I" if event_idx == 0 else ""
             label_q = "Q" if event_idx == 0 else ""
-            ax.plot(times, i_samples, color=color, linewidth=1.6, label=label_i)
+            wave_ax.plot(times, i_samples, color=color, linewidth=1.6, label=label_i)
             if np.any(q_samples):
-                ax.plot(times, q_samples, color=color, linewidth=1.2, linestyle="--", label=label_q)
-            ax.text(
-                event["start_us"] + event["width_us"] / 2.0,
-                1.05 * max_amp,
-                event["label"],
-                ha="center",
-                va="bottom",
-                fontsize=8,
-            )
-        ax.set_ylim(-1.3 * max_amp, 1.3 * max_amp)
+                wave_ax.plot(times, q_samples, color=color, linewidth=1.2, linestyle="--", label=label_q)
+
+        wave_ax.set_ylim(-max(0.2, 1.35 * max_amp), max(0.2, 1.2 * max_amp))
+        wave_ax.set_xlim(0, final_xlim_end)
+
+        for event in virt_events:
+            x = event["start_us"]
+            wave_ax.axvline(x, color="#8a2be2", linestyle="--", linewidth=1.0, alpha=0.7)
+
+        labels = label_sequences.get(qubit, [])
+        if labels:
+            label_ax.set_xlim(0, 1)
+            label_ax.set_ylim(0, 1)
+            count = len(labels)
+            if count == 1:
+                x_positions = [0.5]
+            else:
+                x_positions = np.linspace(0.05, 0.95, count)
+            for x_pos, entry in zip(x_positions, labels):
+                if entry.get("virtual"):
+                    text = f"rz({format_theta(entry.get('theta'))})"
+                    color = "#4b0082"
+                else:
+                    if entry.get("gate") == "rx" and entry.get("theta") is not None:
+                        text = f"rx({format_theta_compact(entry.get('theta'))})"
+                    else:
+                        text = entry.get("label", "pulse")
+                    color = "#333333"
+                label_ax.text(
+                    x_pos,
+                    0.5,
+                    text,
+                    rotation=90,
+                    ha="center",
+                    va="center",
+                    fontsize=6,
+                    color=color,
+                    transform=label_ax.transAxes,
+                )
+            label_ax.set_xticks([])
+            label_ax.set_yticks([])
+        else:
+            label_ax.set_xlim(0, 1)
+            label_ax.set_ylim(0, 1)
+
         if idx == 0:
-            handles, labels = ax.get_legend_handles_labels()
+            handles, labels = wave_ax.get_legend_handles_labels()
             legend_labels = []
             legend_handles = []
             for handle, label in zip(handles, labels):
@@ -147,10 +239,15 @@ def plot_events(events_by_qubit, title: Optional[str], output_path: Path, dpi: i
                     legend_labels.append(label)
                     legend_handles.append(handle)
             if legend_handles:
-                ax.legend(legend_handles, legend_labels, loc="upper right", frameon=False)
+                wave_ax.legend(legend_handles, legend_labels, loc="upper right", frameon=False)
 
-    axes[-1].set_xlabel("Time (µs)")
-    axes[-1].set_xlim(0, total_time * 1.05 if total_time > 0 else 1.0)
+        wave_ax.tick_params(axis="x", which="both", labelbottom=False)
+        last_wave_ax = wave_ax
+
+    if last_wave_ax is not None:
+        last_wave_ax.tick_params(axis="x", which="both", labelbottom=True)
+        last_wave_ax.set_xlabel("Time (µs)")
+
     if title:
         fig.suptitle(title)
     fig.tight_layout(rect=(0, 0, 1, 0.98 if title else 1))
@@ -179,9 +276,17 @@ def main(argv: Optional[Iterable[str]] = None):
     args = parser.parse_args(argv)
 
     pulse_doc = load_json(args.circuit_pulses)
-    events_by_qubit = build_qubit_events(pulse_doc)
+    analog_events_by_qubit, virtual_events_by_qubit, label_sequences = build_qubit_events(pulse_doc)
     output_path = derive_output_path(args.circuit_pulses, args.output)
-    plot_events(events_by_qubit, args.title, output_path, args.dpi, args.samples_per_us)
+    plot_events(
+        analog_events_by_qubit,
+        virtual_events_by_qubit,
+        label_sequences,
+        args.title,
+        output_path,
+        args.dpi,
+        args.samples_per_us,
+    )
     print(f"Saved pulse timeline to {output_path}")
 
 

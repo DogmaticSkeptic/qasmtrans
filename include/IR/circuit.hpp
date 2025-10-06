@@ -433,6 +433,17 @@ namespace QASMTrans
             Gate G(OP::ID, qubit);
             gates->push_back(G);
         }
+        void ISWAP(IdxType ctrl, IdxType qubit)
+        {
+            // iSWAP gate swaps amplitudes with phase i
+            /** ISWAP = [1 0 0 0]
+                         [0 0 i 0]
+                         [0 i 0 0]
+                         [0 0 0 1]
+            */
+            Gate G(OP::ISWAP, qubit, ctrl, -1, 2);
+            gates->push_back(G);
+        }
         void SWAP(IdxType ctrl, IdxType qubit)
         {
             // SWAP gate
