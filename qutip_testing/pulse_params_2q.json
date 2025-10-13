@@ -1,0 +1,92 @@
+{
+  "global": {
+    "dt_ns": 0.25,
+    "num_qubits": 2,
+    "edge_01": [
+      0,
+      1
+    ]
+  },
+  "basis_single_qubit": {
+    "rx_pi_25ns": {
+      "duration_ns": 25.0,
+      "sigma_ns": 5.000000000000001,
+      "omega_peak_rad_per_s": 253819732.42300758,
+      "area_omega_rad": 3.141592653589793,
+      "default_phase_rad": 0.0
+    },
+    "rx_pi_over_2_25ns": {
+      "duration_ns": 25.0,
+      "sigma_ns": 5.000000000000001,
+      "omega_peak_rad_per_s": 126909866.21150379,
+      "area_omega_rad": 1.5707963267948966,
+      "default_phase_rad": 0.0
+    },
+    "ry_pi_over_2_25ns_q0": {
+      "duration_ns": 25.0,
+      "sigma_ns": 5.000000000000001,
+      "omega_peak_rad_per_s": 126909866.21150379,
+      "area_omega_rad": 1.5707963267948966,
+      "default_phase_rad": 1.5707963267948966
+    }
+  },
+  "virtual_z": {
+    "type": "virtual_phase_advance",
+    "rule": "I=Omega*cos(phi), Q=Omega*sin(phi); Rz(zeta): phi:=phi+zeta",
+    "calibration_reference_phase_rad": 0.0
+  },
+  "single_qubit": {
+    "rx_pi_q0": {
+      "type": "gaussian",
+      "target_qubit": 0,
+      "theta_rad": 3.141592653589793,
+      "duration_ns": 25.0,
+      "dt_ns": 0.25,
+      "sigma_ns": 5.000000000000001,
+      "omega_peak_rad_per_s": 253819732.42300758,
+      "I_peak_rad_per_s": 253819732.42300758,
+      "area_omega_rad": 3.141592653589793,
+      "default_phase_rad": 0.0
+    },
+    "rx_pi_over_2_q1": {
+      "type": "gaussian",
+      "target_qubit": 1,
+      "theta_rad": 1.5707963267948966,
+      "duration_ns": 25.0,
+      "dt_ns": 0.25,
+      "sigma_ns": 5.000000000000001,
+      "omega_peak_rad_per_s": 126909866.21150379,
+      "I_peak_rad_per_s": 126909866.21150379,
+      "area_omega_rad": 1.5707963267948966,
+      "default_phase_rad": 0.0
+    },
+    "ry_pi_over_2_q0": {
+      "type": "gaussian",
+      "target_qubit": 0,
+      "theta_rad": 1.5707963267948966,
+      "duration_ns": 25.0,
+      "dt_ns": 0.25,
+      "sigma_ns": 5.000000000000001,
+      "omega_peak_rad_per_s": 126909866.21150379,
+      "I_peak_rad_per_s": 126909866.21150379,
+      "area_omega_rad": 1.5707963267948966,
+      "default_phase_rad": 1.5707963267948966
+    },
+    "rz_virtual": {
+      "type": "virtual_phase_advance"
+    }
+  },
+  "two_qubit": {
+    "iswap_01": {
+      "type": "square_iswap",
+      "edge": [
+        0,
+        1
+      ],
+      "duration_ns": 50.0,
+      "dt_ns": 0.25,
+      "J_amp_rad_per_s": 15707963.267948965,
+      "J_area_rad": 0.7853981633974483
+    }
+  }
+}

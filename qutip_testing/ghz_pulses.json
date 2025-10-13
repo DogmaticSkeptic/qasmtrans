@@ -1,0 +1,300 @@
+import json
+import numpy as np
+import qutip as qt
+
+OUT_JSON_PATH = "ghz_4q_pulses.json"
+
+# --- Device / topology ---
+NQ = 4
+EDGES = [(0, 1), (0, 2), (0, 3)]
+DT_NS = 0.25
+SINGLE_NS = 25.0
+ISWAP_NS = 50.0
+SIGMA_FRAC = 0.2
+
+# --- Single-qubit primitives ---
+def single_qubit_ops():
+    e0 = qt.basis(2, 0)
+    e1 = qt.basis(2, 1)
+    s01 = e0 * e1.dag()
+    s10 = s01.dag()
+    X = s01 + s10
+    Y = -1j * s01 + 1j * s10
+    Z = e0 * e0.dag() - e1 * e1.dag()
+    return e0, e1, s01, s10, X, Y, Z
+
+def lift_one(op, site, N):
+    ops = [qt.qeye(2)] * N
+    ops = list(ops)
+    ops[site] = op
+    return qt.tensor(ops)
+
+def lift_two(op_i, i, op_j, j, N):
+    ops = [qt.qeye(2)] * N
+    ops = list(ops)
+    ops[i] = op_i
+    ops[j] = op_j
+    return qt.tensor(ops)
+
+# --- Envelope helpers ---
+def make_time_grid(dt, duration):
+    n = int(np.round(duration / dt)) + 1
+    return np.arange(n, dtype=float) * dt
+
+def gaussian_centered(t, duration, sigma):
+    t0 = 0.5 * duration
+    return np.exp(-0.5 * ((t - t0) / sigma) ** 2)
+
+def omega_gaussian_for_rotation(theta, duration, dt, sigma_frac):
+    t = make_time_grid(dt, duration)
+    sigma = sigma_frac * duration
+    g = gaussian_centered(t, duration, sigma)
+    area = float(np.trapezoid(g, dx=dt))
+    A = theta / area
+    return t, A * g, A, sigma
+
+def iq_from_omega_phase(omega_t, phase):
+    I = omega_t * np.cos(phase)
+    Q = omega_t * np.sin(phase)
+    return I, Q
+
+def coeff_from_array(arr, dt):
+    y = np.asarray(arr, dtype=float)
+    n = y.size
+    inv_dt = 1.0 / dt
+    def c(t, args=None):
+        idx = int(t * inv_dt)
+        if idx < 0:
+            idx = 0
+        elif idx >= n:
+            idx = n - 1
+        return float(y[idx])
+    return c
+
+# --- Hamiltonian and simulation ---
+def build_H(t, dt, I_env, Q_env, J_env, N, edges):
+    _, _, s01, s10, X, Y, _ = single_qubit_ops()
+    H = []
+    for q in range(N):
+        Ii = I_env.get(q, np.zeros_like(t))
+        Qi = Q_env.get(q, np.zeros_like(t))
+        if np.any(Ii):
+            H.append([lift_one(X, q, N), coeff_from_array(0.5 * Ii, dt)])
+        if np.any(Qi):
+            H.append([lift_one(Y, q, N), coeff_from_array(0.5 * Qi, dt)])
+    for e in edges:
+        i, j = e
+        Jij = J_env.get(e, np.zeros_like(t))
+        if np.any(Jij):
+            exch = lift_two(s10, i, s01, j, N) + lift_two(s01, i, s10, j, N)
+            H.append([exch, coeff_from_array(Jij, dt)])
+    return H
+
+def simulate(t, H, rho0, dt):
+    opts = {"method": "bdf", "rtol": 1e-7, "atol": 1e-9, "nsteps": 300000, "max_step": dt, "progress_bar": False, "store_states": True}
+    return qt.mesolve(H, rho0, t, c_ops=[], e_ops=[], options=opts)
+
+# --- Virtual-Z frame tracking ---
+def rz_virtual_update(phase_map, q, zeta):
+    phase_map[q] = phase_map.get(q, 0.0) + float(zeta)
+
+# --- Pulse generators (single XY and √iSWAP) ---
+def run_xy_rotation(theta, duration_ns, target, phase_abs, N, dt_ns=DT_NS, sigma_frac=SIGMA_FRAC):
+    dt = dt_ns * 1e-9
+    duration = duration_ns * 1e-9
+    t, omega, A_peak, sigma = omega_gaussian_for_rotation(theta, duration, dt, sigma_frac)
+    Iq = {q: np.zeros_like(t) for q in range(N)}
+    Qq = {q: np.zeros_like(t) for q in range(N)}
+    I, Q = iq_from_omega_phase(omega, phase_abs)
+    Iq[target] = I
+    Qq[target] = Q
+    J = {e: np.zeros_like(t) for e in EDGES}
+    H = build_H(t, dt, Iq, Qq, J, N, EDGES)
+    e0, _, _, _, _, _, _ = single_qubit_ops()
+    rho0 = qt.ket2dm(qt.tensor([e0] * N))
+    res = simulate(t, H, rho0, dt)
+    params = {"type": "gaussian", "target_qubit": int(target), "theta_rad": float(theta), "duration_ns": float(duration_ns), "dt_ns": float(dt_ns), "sigma_ns": float(sigma * 1e9), "omega_peak_rad_per_s": float(A_peak), "area_omega_rad": float(np.trapezoid(omega, dx=dt)), "phase_rad": float(phase_abs)}
+    return t, Iq, Qq, J, res, params
+
+def run_sqrt_iswap(edge, duration_ns, N, dt_ns=DT_NS):
+    dt = dt_ns * 1e-9
+    duration = duration_ns * 1e-9
+    t = make_time_grid(dt, duration)
+    J_area = 0.25 * np.pi
+    J_amp = J_area / duration
+    Iq = {q: np.zeros_like(t) for q in range(N)}
+    Qq = {q: np.zeros_like(t) for q in range(N)}
+    J = {e: (np.full_like(t, J_amp) if e == edge else np.zeros_like(t)) for e in EDGES}
+    H = build_H(t, dt, Iq, Qq, J, N, EDGES)
+    e0, _, _, _, _, _, _ = single_qubit_ops()
+    rho0 = qt.ket2dm(qt.tensor([e0] * N))
+    res = simulate(t, H, rho0, dt)
+    params = {"type": "square_sqrt_iswap", "edge": [int(edge[0]), int(edge[1])], "duration_ns": float(duration_ns), "dt_ns": float(dt_ns), "J_amp_rad_per_s": float(J_amp), "J_area_rad": float(J_area)}
+    return t, Iq, Qq, J, res, params
+
+# --- Timeline assembly ---
+def append_env(total_t, total_I, total_Q, total_J, seg_t, seg_I, seg_Q, seg_J, dt):
+    if total_t.size == 0:
+        t_blk = seg_t
+    else:
+        t_blk = total_t[-1] + dt + seg_t
+    t_out = t_blk if total_t.size == 0 else np.concatenate([total_t, t_blk])
+    I_out = {q: (seg_I[q] if total_I[q].size == 0 else np.concatenate([total_I[q], seg_I[q]])) for q in total_I.keys()}
+    Q_out = {q: (seg_Q[q] if total_Q[q].size == 0 else np.concatenate([total_Q[q], seg_Q[q]])) for q in total_Q.keys()}
+    J_out = {e: (seg_J[e] if total_J[e].size == 0 else np.concatenate([total_J[e], seg_J[e]])) for e in total_J.keys()}
+    return t_out, I_out, Q_out, J_out
+
+def simulate_sequence(blocks, N, dt_ns=DT_NS, sigma_frac=SIGMA_FRAC):
+    dt = dt_ns * 1e-9
+    phase = {q: 0.0 for q in range(N)}
+    t_all = np.array([], dtype=float)
+    I_all = {q: np.zeros(0) for q in range(N)}
+    Q_all = {q: np.zeros(0) for q in range(N)}
+    J_all = {e: np.zeros(0) for e in EDGES}
+    for kind, args in blocks:
+        if kind == "rz":
+            rz_virtual_update(phase, int(args["q"]), float(args["zeta"]))
+        elif kind == "ry":
+            q = int(args["q"])
+            theta = float(args["theta"])
+            dur = float(args["duration_ns"])
+            t, Iq, Qq, Jq, _, _ = run_xy_rotation(theta, dur, q, phase[q] + np.pi / 2.0, N, dt_ns=dt_ns, sigma_frac=sigma_frac)
+            t_all, I_all, Q_all, J_all = append_env(t_all, I_all, Q_all, J_all, t, Iq, Qq, Jq, dt)
+        elif kind == "rx":
+            q = int(args["q"])
+            theta = float(args["theta"])
+            dur = float(args["duration_ns"])
+            t, Iq, Qq, Jq, _, _ = run_xy_rotation(theta, dur, q, phase[q], N, dt_ns=dt_ns, sigma_frac=sigma_frac)
+            t_all, I_all, Q_all, J_all = append_env(t_all, I_all, Q_all, J_all, t, Iq, Qq, Jq, dt)
+        elif kind == "siswap":
+            i = int(args["i"])
+            j = int(args["j"])
+            dur = float(args["duration_ns"])
+            t, Iq, Qq, Jq, _, _ = run_sqrt_iswap((i, j), dur, N, dt_ns=dt_ns)
+            t_all, I_all, Q_all, J_all = append_env(t_all, I_all, Q_all, J_all, t, Iq, Qq, Jq, dt)
+    H = build_H(t_all, dt, I_all, Q_all, J_all, N, EDGES)
+    e0, _, _, _, _, _, _ = single_qubit_ops()
+    rho0 = qt.ket2dm(qt.tensor([e0] * N))
+    res = simulate(t_all, H, rho0, dt)
+    psi_f = res.states[-1]
+    if not psi_f.isket:
+        evals, evecs = psi_f.eigenstates()
+        psi_f = evecs[np.argmax(np.real(evals))]
+    return t_all, I_all, Q_all, J_all, psi_f
+
+# --- Fidelity metrics ---
+def fidelity_dm(rho, sigma):
+    if rho.isket:
+        rho = qt.ket2dm(rho)
+    if sigma.isket:
+        sigma = qt.ket2dm(sigma)
+    return float(qt.fidelity(rho, sigma))
+
+def ghz_phase_aligned_fidelity(psi):
+    if not psi.isket:
+        evals, evecs = psi.eigenstates()
+        psi = evecs[np.argmax(np.real(evals))]
+    e0, e1, _, _, _, _, _ = single_qubit_ops()
+    b0 = qt.tensor([e0, e0, e0, e0])
+    b1 = qt.tensor([e1, e1, e1, e1])
+    a0 = psi.overlap(b0)
+    a1 = psi.overlap(b1)
+    return float(((abs(a0) + abs(a1)) ** 2) / 2.0)
+
+# --- CZ from √iSWAP (frame-virtual Z only) ---
+# Identity used (up to a global phase):
+# CZ(c,t) = [S†(c) ⊗ S†(t)] · √iSWAP(c,t) · [Z(c) ⊗ I] · √iSWAP(c,t) · [S(c) ⊗ S(t)]
+# with S = Rz(π/2), Z = Rz(π). All Rz are virtual frame updates here.
+def cz_from_sqrtiswap_blocks(c, t, duration_iswap_ns=ISWAP_NS):
+    b = []
+    b.append(("rz", {"q": c, "zeta": -np.pi / 2.0}))
+    b.append(("rz", {"q": t, "zeta": -np.pi / 2.0}))
+    b.append(("siswap", {"i": c, "j": t, "duration_ns": duration_iswap_ns}))
+    b.append(("rz", {"q": c, "zeta": np.pi}))
+    b.append(("siswap", {"i": c, "j": t, "duration_ns": duration_iswap_ns}))
+    b.append(("rz", {"q": c, "zeta": np.pi / 2.0}))
+    b.append(("rz", {"q": t, "zeta": np.pi / 2.0}))
+    return b
+
+# --- GHZ(4) program ---
+def ghz_4q_blocks(duration_single_ns=SINGLE_NS, duration_iswap_ns=ISWAP_NS):
+    b = []
+    b.append(("ry", {"q": 0, "theta": np.pi / 2.0, "duration_ns": duration_single_ns}))  # |+000>
+    b += cz_from_sqrtiswap_blocks(0, 1, duration_iswap_ns)
+    b += cz_from_sqrtiswap_blocks(0, 2, duration_iswap_ns)
+    b += cz_from_sqrtiswap_blocks(0, 3, duration_iswap_ns)
+    return b
+
+# --- Diagnostics: stepwise fidelities ---
+def stepwise_checks():
+    # Prepare + and check vs |+000>
+    blocks_prep = [("ry", {"q": 0, "theta": np.pi / 2.0, "duration_ns": SINGLE_NS})]
+    _, _, _, _, psi = simulate_sequence(blocks_prep, NQ, dt_ns=DT_NS, sigma_frac=SIGMA_FRAC)
+    e0, e1, _, _, _, _, _ = single_qubit_ops()
+    plus = (qt.tensor([e0]) + qt.tensor([e1])).unit()
+    target = qt.tensor([plus, e0, e0, e0])
+    print("Fidelity after Ry(pi/2) on q0 (|+000>):", fidelity_dm(psi, target))
+
+    # After first CZ: target Bell on (0,1) tensored with |00> on others
+    blocks_bell = blocks_prep + cz_from_sqrtiswap_blocks(0, 1, ISWAP_NS)
+    _, _, _, _, psi_bell = simulate_sequence(blocks_bell, NQ, dt_ns=DT_NS, sigma_frac=SIGMA_FRAC)
+    bell = (qt.tensor([e0, e0]) + qt.tensor([e1, e1])).unit()
+    target_bell = qt.tensor([bell, e0, e0])
+    print("Fidelity after CZ(0,1) to Bell⊗|00>:", fidelity_dm(psi_bell, target_bell))
+
+    # After second CZ: GHZ on 3 qubits tensored with |0>
+    blocks_3 = blocks_bell + cz_from_sqrtiswap_blocks(0, 2, ISWAP_NS)
+    _, _, _, _, psi_3 = simulate_sequence(blocks_3, NQ, dt_ns=DT_NS, sigma_frac=SIGMA_FRAC)
+    ghz3 = (qt.tensor([e0, e0, e0]) + qt.tensor([e1, e1, e1])).unit()
+    target_3 = qt.tensor([ghz3, e0])
+    print("Fidelity after CZ(0,2) to GHZ3⊗|0>:", fidelity_dm(psi_3, target_3))
+
+    # After third CZ: GHZ4 (phase-aligned)
+    blocks_4 = blocks_3 + cz_from_sqrtiswap_blocks(0, 3, ISWAP_NS)
+    _, _, _, _, psi_4 = simulate_sequence(blocks_4, NQ, dt_ns=DT_NS, sigma_frac=SIGMA_FRAC)
+    print("Fidelity GHZ4 phase-aligned (final):", ghz_phase_aligned_fidelity(psi_4))
+    return blocks_4
+
+# --- Presentation ---
+def print_params_table():
+    dt_ns = DT_NS
+    t_probe, _, _, _, _, p_probe = run_xy_rotation(np.pi / 2.0, SINGLE_NS, 0, np.pi / 2.0, NQ, dt_ns=dt_ns, sigma_frac=SIGMA_FRAC)
+    single_sigma_ns = float(p_probe["sigma_ns"])
+    single_peak = float(p_probe["omega_peak_rad_per_s"])
+    single_area = float(p_probe["area_omega_rad"])
+    t2, _, _, _, _, p_is = run_sqrt_iswap((0, 1), ISWAP_NS, NQ, dt_ns=dt_ns)
+    J_amp = float(p_is["J_amp_rad_per_s"])
+    J_area = float(p_is["J_area_rad"])
+    headers = ["gate", "duration_ns", "sigma_ns", "peak_rad_per_s", "area_rad", "default_phase_rad"]
+    rows = [
+        ["ry_pi_over_2", SINGLE_NS, single_sigma_ns, single_peak, single_area, "pi/2"],
+        ["sqrt_iswap", ISWAP_NS, "-", J_amp, J_area, "-"]
+    ]
+    colw = [max(len(str(h)), max(len(str(r[i])) for r in rows)) for i, h in enumerate(headers)]
+    line = "  ".join(str(headers[i]).ljust(colw[i]) for i in range(len(headers)))
+    print(line)
+    print("-" * len(line))
+    for r in rows:
+        print("  ".join(str(r[i]).ljust(colw[i]) for i in range(len(headers))))
+
+def main():
+    print_params_table()
+    blocks = ghz_4q_blocks()
+    # Full sequence simulation and final GHZ fidelity
+    _, _, _, _, psi_f = simulate_sequence(blocks, NQ, dt_ns=DT_NS, sigma_frac=SIGMA_FRAC)
+    F_final = ghz_phase_aligned_fidelity(psi_f)
+    print("Fidelity GHZ4 phase-aligned (full sequence):", F_final)
+    # Stepwise diagnostics
+    print("---- Stepwise diagnostics ----")
+    blocks_chk = stepwise_checks()
+    out = {
+        "global": {"dt_ns": DT_NS, "num_qubits": NQ, "edges": [[int(i), int(j)] for i, j in EDGES]},
+        "native_single_qubit": {"ry_gaussian": {"duration_ns": SINGLE_NS, "sigma_frac": SIGMA_FRAC, "phase_offset_for_y_rad": float(np.pi / 2.0)}},
+        "native_two_qubit": {"sqrt_iswap": {"duration_ns": ISWAP_NS, "J_area_rad": float(0.25 * np.pi)}},
+        "sequence_blocks": blocks
+    }
+    with open(OUT_JSON_PATH, "w") as f:
+        json.dump(out, f, indent=2)
+
+if __name__ == "__main__":
+    main()
