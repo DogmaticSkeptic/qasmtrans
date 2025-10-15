@@ -2,7 +2,6 @@ import json
 import numpy as np
 import qutip as qt
 
-CALIB_PATH = "calibration_params.json"
 OUT_JSON_PATH = "pulse_params_2q.json"
 NQ = 2
 EDGE = (0, 1)

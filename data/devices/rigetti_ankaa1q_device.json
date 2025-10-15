@@ -1,0 +1,75 @@
+{
+  "metadata": {
+    "data_source": "Rigetti",
+    "last_update_date": "2024-09-23T16:21:57.870455",
+    "online_date": 0,
+    "anharmonicity": 0,
+    "processor": {
+      "vendor": "Rigetti",
+      "family": "Ankaa",
+      "revision": "3"
+    },
+    "name": "rigetti_Ankaa_9Q_3",
+    "version": "3",
+    "num_qubits": 1,
+    "basis_gates": [
+      "RX",
+      "RZ",
+      "ISWAP"
+    ],
+    "T1": {
+      "0": 2.8922611007714644e-05
+    },
+    "T2": {
+      "0": 3.669356652149215e-06
+    },
+    "freq": 0,
+    "readout_length": {
+      "0": 2.0000000000000003e-06
+    },
+    "prob_meas0_prep1": {
+      "0": 0.049000000000000044
+    },
+    "prob_meas1_prep0": {
+      "0": 0.049000000000000044
+    },
+    "gate_lens": {
+      "rx0": 5.0000000000000004e-08,
+      "rz0": 1.0000000000000001e-11
+    },
+    "gate_errs": {
+      "rx0": 0.0016994893606527839,
+      "rz0": 0.0
+    },
+    "coupling": []
+  },
+  "name": "rigetti_ankaa1q_calibrated",
+  "version": "2024-09-23T16:21:57.870455",
+  "num_qubits": 1,
+  "basis_gates": [
+    "rx",
+    "rz",
+    "iswap"
+  ],
+  "gate_lens": {
+    "rx0": 5.0000000000000004e-08,
+    "rz0": 1.0000000000000001e-11
+  },
+  "gate_errs": {
+    "rx0": 0.0016994893606527839,
+    "rz0": 0.0
+  },
+  "cx_coupling": [],
+  "physical_qubits": [
+    0
+  ],
+  "readout_length": {
+    "0": 2.0000000000000003e-06
+  },
+  "prob_meas0_prep1": {
+    "0": 0.049000000000000044
+  },
+  "prob_meas1_prep0": {
+    "0": 0.049000000000000044
+  }
+}
