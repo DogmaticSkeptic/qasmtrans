@@ -87,6 +87,25 @@ namespace QASMTrans
             return value;
         }
 
+        inline bool containsRigettiTag(const std::string &value)
+        {
+            std::string lower = toLower(value);
+            return lower.find("rigetti") != std::string::npos || lower.find("ankaa") != std::string::npos;
+        }
+
+        inline std::string canonicalGateForRigetti(const std::string &gate, bool rigetti_mode)
+        {
+            if (!rigetti_mode)
+            {
+                return gate;
+            }
+            if (gate == "x" || gate == "sx")
+            {
+                return "rx";
+            }
+            return gate;
+        }
+
         inline std::string joinQubits(const std::vector<IdxType> &qubits, const std::string &delimiter)
         {
             std::ostringstream oss;
@@ -138,11 +157,28 @@ namespace QASMTrans
             return qubits;
         }
 
-        inline ValType gateParameterValue(const Gate &gate, const std::string &name)
+        inline ValType rigettiThetaForGate(const Gate &gate, bool rigetti_mode)
+        {
+            if (!rigetti_mode)
+            {
+                return gate.theta;
+            }
+            switch (gate.op_name)
+            {
+            case OP::X:
+                return PI;
+            case OP::SX:
+                return PI / 2.0;
+            default:
+                return gate.theta;
+            }
+        }
+
+        inline ValType gateParameterValue(const Gate &gate, const std::string &name, bool rigetti_mode = false)
         {
             if (name == "theta")
             {
-                return gate.theta;
+                return rigettiThetaForGate(gate, rigetti_mode);
             }
             if (name == "phi")
             {
@@ -161,7 +197,8 @@ namespace QASMTrans
 
         inline const PulseDefinition *selectPulseDefinition(const std::vector<PulseDefinition> &candidates,
                                                            const Gate &gate,
-                                                           const std::string &gate_name)
+                                                           const std::string &gate_name,
+                                                           bool rigetti_mode = false)
         {
             if (candidates.empty())
             {
@@ -186,7 +223,7 @@ namespace QASMTrans
                 bool matched = true;
                 for (const auto &param : candidate.parameters)
                 {
-                    ValType gate_value = gateParameterValue(gate, param.first);
+                    ValType gate_value = gateParameterValue(gate, param.first, rigetti_mode);
                     if (std::isnan(gate_value) || std::abs(gate_value - param.second) > PARAM_TOL)
                     {
                         matched = false;
@@ -216,6 +253,7 @@ namespace QASMTrans
             json document = json::parse(input, nullptr, true, true);
             library.name = document.value("name", std::string{});
             library.version = document.value("version", std::string{});
+            const bool rigetti_template = containsRigettiTag(library.name) || containsRigettiTag(template_path);
             if (!document.contains("pulse_definitions") || !document["pulse_definitions"].is_array())
             {
                 throw std::logic_error("Pulse template " + template_path + " is missing 'pulse_definitions' array");
@@ -223,7 +261,8 @@ namespace QASMTrans
             for (const auto &entry : document["pulse_definitions"])
             {
                 PulseDefinition definition;
-                definition.gate = toLower(entry.value("gate", std::string{}));
+                std::string gate_raw = toLower(entry.value("gate", std::string{}));
+                definition.gate = canonicalGateForRigetti(gate_raw, rigetti_template);
                 definition.qubits = entry.value("qubits", std::vector<IdxType>{});
                 definition.shape = entry.value("shape", std::string{});
                 definition.waveform_type = entry.value("waveform_type", std::string{});
@@ -262,8 +301,28 @@ namespace QASMTrans
                 {
                     definition.waveform_type = definition.shape;
                 }
-                const std::string key = makePulseKey(definition.gate, definition.qubits);
-                library.definitions[key].push_back(definition);
+                const std::string canonical_key = makePulseKey(definition.gate, definition.qubits);
+                library.definitions[canonical_key].push_back(definition);
+                if (rigetti_template && (gate_raw == "x" || gate_raw == "sx" || gate_raw == "sxdg"))
+                {
+                    const std::string alias_key = makePulseKey(gate_raw, definition.qubits);
+                    library.definitions[alias_key].push_back(definition);
+                }
+                if (definition.qubits.size() > 1)
+                {
+                    std::vector<IdxType> sorted_qubits = definition.qubits;
+                    std::sort(sorted_qubits.begin(), sorted_qubits.end());
+                    if (sorted_qubits != definition.qubits)
+                    {
+                        const std::string sorted_key = makePulseKey(definition.gate, sorted_qubits);
+                        library.definitions[sorted_key].push_back(definition);
+                        if (rigetti_template && (gate_raw == "x" || gate_raw == "sx" || gate_raw == "sxdg"))
+                        {
+                            const std::string sorted_alias = makePulseKey(gate_raw, sorted_qubits);
+                            library.definitions[sorted_alias].push_back(definition);
+                        }
+                    }
+                }
             }
             return library;
         }
@@ -343,6 +402,9 @@ namespace QASMTrans
         using namespace pulses;
         PulseTemplateLibrary library = loadPulseTemplate(pulse_template_path);
         BackendTimingData backend = loadBackendTiming(backend_path);
+        const bool rigetti_mode = containsRigettiTag(library.name) ||
+                                  containsRigettiTag(backend.name) ||
+                                  containsRigettiTag(pulse_template_path);
 
         const std::map<std::string, std::vector<PulseDefinition>> &definitions = library.definitions;
         std::set<std::string> used_ids;
@@ -353,13 +415,66 @@ namespace QASMTrans
             std::ptrdiff_t gate_index = -1;
         };
         std::unordered_map<IdxType, QubitAvailability> availability;
-        const std::vector<Gate> gates = circuit->get_gates();
+        const std::vector<Gate> original_gates = circuit->get_gates();
+        std::vector<Gate> gates;
+        gates.reserve(original_gates.size() * 5);
+
+        auto hasMatchingPulse = [&](const Gate &candidate_gate, const std::string &gate_name, const std::vector<IdxType> &qubits) -> bool
+        {
+            const std::string key = makePulseKey(gate_name, qubits);
+            auto def_it = definitions.find(key);
+            if (def_it == definitions.end())
+            {
+                if (qubits.size() > 1)
+                {
+                    std::vector<IdxType> sorted = qubits;
+                    std::sort(sorted.begin(), sorted.end());
+                    if (sorted != qubits)
+                    {
+                        const std::string sorted_key = makePulseKey(gate_name, sorted);
+                        def_it = definitions.find(sorted_key);
+                    }
+                }
+                if (def_it == definitions.end())
+                {
+                    return false;
+                }
+            }
+            return selectPulseDefinition(def_it->second, candidate_gate, gate_name, rigetti_mode) != nullptr;
+        };
+
+        for (const auto &gate : original_gates)
+        {
+            std::string gate_name_raw = toLower(OP_NAMES[gate.op_name]);
+            std::string gate_name_canonical = canonicalGateForRigetti(gate_name_raw, rigetti_mode);
+            Gate gate_adjusted = gate;
+            gate_adjusted.theta = rigettiThetaForGate(gate, rigetti_mode);
+            ValType effective_theta = gate_adjusted.theta;
+            if (gate_name_canonical == "rx")
+            {
+                std::vector<IdxType> qubits = extractGateQubits(gate);
+                if (!hasMatchingPulse(gate_adjusted, gate_name_canonical, qubits))
+                {
+                    // Expand Rx(theta) into virtual RZ and calibrated Rx(pi/2) pulses.
+                    IdxType target = qubits.empty() ? gate.qubit : qubits.front();
+                    gates.emplace_back(OP::RZ, target, -1, -1, 1, -PI / 2.0);
+                    gates.emplace_back(OP::RX, target, -1, -1, 1, PI / 2.0);
+                    gates.emplace_back(OP::RZ, target, -1, -1, 1, effective_theta);
+                    gates.emplace_back(OP::RX, target, -1, -1, 1, -PI / 2.0);
+                    gates.emplace_back(OP::RZ, target, -1, -1, 1, PI / 2.0);
+                    continue;
+                }
+            }
+            gates.push_back(gate_adjusted);
+        }
+
         std::vector<GateTimingInfo> gate_timings;
         gate_timings.reserve(gates.size());
         size_t gate_index = 0;
         for (const auto &gate : gates)
         {
-            std::string gate_name = toLower(OP_NAMES[gate.op_name]);
+            std::string gate_name_raw = toLower(OP_NAMES[gate.op_name]);
+            std::string gate_name = canonicalGateForRigetti(gate_name_raw, rigetti_mode);
             if (gate_name.empty())
             {
                 continue;
@@ -377,11 +492,24 @@ namespace QASMTrans
             auto def_it = definitions.find(key);
             if (def_it == definitions.end())
             {
-                throw std::logic_error(
-                    "Pulse template missing definition for gate '" + gate_name + "' on qubits [" +
-                    joinQubits(qubits, ",") + "]");
+                if (qubits.size() > 1)
+                {
+                    std::vector<IdxType> sorted = qubits;
+                    std::sort(sorted.begin(), sorted.end());
+                    if (sorted != qubits)
+                    {
+                        const std::string sorted_key = makePulseKey(gate_name, sorted);
+                        def_it = definitions.find(sorted_key);
+                    }
+                }
+                if (def_it == definitions.end())
+                {
+                    throw std::logic_error(
+                        "Pulse template missing definition for gate '" + gate_name + "' on qubits [" +
+                        joinQubits(qubits, ",") + "]");
+                }
             }
-            const PulseDefinition *definition_ptr = selectPulseDefinition(def_it->second, gate, gate_name);
+            const PulseDefinition *definition_ptr = selectPulseDefinition(def_it->second, gate, gate_name, rigetti_mode);
             if (definition_ptr == nullptr)
             {
                 std::ostringstream oss;
@@ -445,9 +573,10 @@ namespace QASMTrans
                 entry["virtual"] = true;
             }
             json parameters = json::object();
-            if (gate.theta != 0.0)
+            ValType theta_effective = rigettiThetaForGate(gate, rigetti_mode);
+            if (theta_effective != 0.0)
             {
-                parameters["theta"] = gate.theta;
+                parameters["theta"] = theta_effective;
             }
             if (gate.phi != 0.0)
             {
@@ -485,7 +614,7 @@ namespace QASMTrans
                 }
                 json entry;
                 entry["id"] = definition.id;
-                entry["gate"] = definition.gate;
+                entry["gate"] = canonicalGateForRigetti(definition.gate, rigetti_mode);
                 entry["qubits"] = definition.qubits;
                 if (!definition.shape.empty())
                 {
