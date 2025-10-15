@@ -25,6 +25,8 @@
 *.swn
 *~
 
+data/output/
+
 # CMake generated directories and files
 CMakeCache.txt
 CMakeFiles/
