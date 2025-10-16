@@ -25,7 +25,13 @@
 using namespace QASMTrans;
 using namespace std;
 
-void transpiler(shared_ptr<Circuit> circuit, shared_ptr<Chip> chip, map<string, creg> list_cregs, IdxType debug_level, IdxType mode)
+void transpiler(shared_ptr<Circuit> circuit,
+                shared_ptr<Chip> chip,
+                map<string, creg> list_cregs,
+                IdxType debug_level,
+                IdxType mode,
+                bool use_full_fidelity,
+                CriticalPathHeuristicMode cp_mode)
 {
     circuit->set_creg(list_cregs);
     IdxType n_qubits = IdxType(circuit->num_qubits());
@@ -61,7 +67,7 @@ void transpiler(shared_ptr<Circuit> circuit, shared_ptr<Chip> chip, map<string, 
     //======================================== STEP-3: Calibration-Aware Optimization =======================================
     cpu_timer calib_timer;
     calib_timer.start_timer();
-    calibration_aware_optimization(circuit, chip, debug_level);
+    calibration_aware_optimization(circuit, chip, debug_level, use_full_fidelity, cp_mode);
     calib_timer.stop_timer();
     double calib_time = calib_timer.measure();
     if (debug_level > 0)

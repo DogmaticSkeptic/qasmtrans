@@ -25,6 +25,8 @@ namespace QASMTrans
     private:
         // number of qubits
         IdxType n_qubits;
+        std::vector<IdxType> critical_path_gate_indices;
+        double critical_path_latency;
 
     public:
         // user input gate sequence
@@ -35,7 +37,7 @@ namespace QASMTrans
         std::vector<std::vector<IdxType>> edge_list;
         std::vector<std::vector<IdxType>> distance_mat;
 
-        Circuit(IdxType _n_qubits) : n_qubits(_n_qubits)
+        Circuit(IdxType _n_qubits) : n_qubits(_n_qubits), critical_path_latency(0.0)
         {
             // Implementation of constructor
             gates = std::make_shared<std::vector<Gate>>();
@@ -51,6 +53,7 @@ namespace QASMTrans
         }
         void set_gates(std::vector<Gate> new_gates)
         {
+            clear_critical_path();
             gates = std::make_shared<std::vector<Gate>>(new_gates);
             // auto-update number of qubits based on maximum gate index encountered
             IdxType max_q = -1;
@@ -213,6 +216,7 @@ namespace QASMTrans
             // Implementation of clear function
             gates->clear();
             // n_qubits = 0;
+            clear_critical_path();
         }
         void reset()
         {
@@ -226,6 +230,24 @@ namespace QASMTrans
             for (auto gate : *gates)
                 ss << gate.gateToString() << std::endl;
             return ss.str();
+        }
+        void set_critical_path(const std::vector<IdxType> &gate_indices, double total_latency)
+        {
+            critical_path_gate_indices = gate_indices;
+            critical_path_latency = total_latency;
+        }
+        std::vector<IdxType> get_critical_path() const
+        {
+            return critical_path_gate_indices;
+        }
+        double get_critical_path_latency() const
+        {
+            return critical_path_latency;
+        }
+        void clear_critical_path()
+        {
+            critical_path_gate_indices.clear();
+            critical_path_latency = 0.0;
         }
         // ===================== Standard Gates =========================
         void X(IdxType qubit)

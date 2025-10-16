@@ -2,6 +2,8 @@
 
 #include <random>
 #include <string>
+#include <algorithm>
+#include <cctype>
 
 #include "../QASMTransPrimitives.hpp"
 
@@ -33,6 +35,85 @@ vector<pair<IdxType, IdxType>> extract_cx_pairs(const json &j) {
   return pairs;
 }
 
+inline std::string to_lower_copy(const std::string &value) {
+  std::string result;
+  result.reserve(value.size());
+  for (char ch : value) {
+    result.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+  }
+  return result;
+}
+
+inline double lookup_gate_length(const shared_ptr<Chip> &chip, const Gate &gate) {
+  if (!chip) {
+    return 0.0;
+  }
+
+  const std::string gate_name = to_lower_copy(OP_NAMES[gate.op_name]);
+
+  auto fetch_single = [&](IdxType qubit) -> double {
+    if (qubit >= 0 &&
+        qubit < static_cast<IdxType>(chip->single_qubit_gate_lengths.size())) {
+      const auto &length_map = chip->single_qubit_gate_lengths[qubit];
+      auto it = length_map.find(gate_name);
+      if (it != length_map.end()) {
+        return it->second;
+      }
+    }
+    return 0.0;
+  };
+
+  auto fetch_two_qubit = [&](IdxType ctrl, IdxType tgt,
+                             const std::string &name) -> double {
+    std::pair<IdxType, IdxType> key{ctrl, tgt};
+    auto len_it = chip->two_qubit_gate_lengths.find(key);
+    if (len_it == chip->two_qubit_gate_lengths.end()) {
+      key = {tgt, ctrl};
+      len_it = chip->two_qubit_gate_lengths.find(key);
+    }
+    if (len_it != chip->two_qubit_gate_lengths.end()) {
+      auto gate_it = len_it->second.find(name);
+      if (gate_it != len_it->second.end()) {
+        return gate_it->second;
+      }
+    }
+    return 0.0;
+  };
+
+  if (gate.op_name == OP::SWAP) {
+    if (gate.ctrl >= 0 && gate.qubit >= 0) {
+      double cx_length =
+          fetch_two_qubit(gate.ctrl, gate.qubit, std::string("cx"));
+      if (cx_length > 0.0) {
+        return 3.0 * cx_length;
+      }
+    }
+    // fall back to any explicit SWAP entry if present
+    if (gate.ctrl >= 0 && gate.qubit >= 0) {
+      double swap_length =
+          fetch_two_qubit(gate.ctrl, gate.qubit, gate_name);
+      if (swap_length > 0.0) {
+        return swap_length;
+      }
+    }
+    return 0.0;
+  }
+
+  if (gate.ctrl >= 0 && gate.qubit >= 0) {
+    return fetch_two_qubit(gate.ctrl, gate.qubit, gate_name);
+  }
+
+  if (gate.qubit >= 0) {
+    return fetch_single(gate.qubit);
+  }
+
+  if (gate.extra >= 0) {
+    return fetch_single(gate.extra);
+  }
+
+  return 0.0;
+}
+
 void DAG_generator(IdxType qubit_num, vector<vector<IdxType>> &circuit,
                    vector<IdxType> &gate_state, vector<IdxType> &qubit_state,
                    vector<IdxType> &gate_dependency,
@@ -44,27 +125,39 @@ void DAG_generator(IdxType qubit_num, vector<vector<IdxType>> &circuit,
   gate_dependency.resize(gate_num, 0);
   for (IdxType i = 0; i < gate_num; i++) {
     vector<IdxType> gate = circuit[i];
-    if (current_gate_idx[gate[0]] == -1) {
-      if (current_gate_idx[gate[1]] == -1) {
-        first_layer_gates_idx.push_back(i);
-        gate_state[i] = 2;
-        qubit_state[gate[0]] = 1;
-        qubit_state[gate[1]] = 1;
-        gate_dependency[i] = 0;
-      } else {
+    const auto valid_qubit = [&](IdxType q) {
+      return q >= 0 && q < qubit_num;
+    };
+
+      if (valid_qubit(gate[0]) && current_gate_idx[gate[0]] == -1) {
+        if (valid_qubit(gate[1]) && current_gate_idx[gate[1]] == -1) {
+          first_layer_gates_idx.push_back(i);
+          gate_state[i] = 2;
+          if (valid_qubit(gate[0])) {
+            qubit_state[gate[0]] = 1;
+          }
+          if (valid_qubit(gate[1])) {
+            qubit_state[gate[1]] = 1;
+          }
+          gate_dependency[i] = 0;
+        } else {
+          gate_dependency[i] = 1;
+        }
+      }
+      if (valid_qubit(gate[1]) && current_gate_idx[gate[1]] == -1 &&
+          valid_qubit(gate[0]) && current_gate_idx[gate[0]] != -1) {
         gate_dependency[i] = 1;
       }
-    }
-    if (current_gate_idx[gate[1]] == -1 && current_gate_idx[gate[0]] != -1) {
-      gate_dependency[i] = 1;
-    }
-    for (IdxType j = 0; j < gate.size(); j++) {
-      IdxType qubit = gate[j];
-      if (current_gate_idx[qubit] != -1) {
-        vector<IdxType> prior_gate = circuit[current_gate_idx[qubit]];
-        IdxType qubit_idx;
-        if (prior_gate[j] != qubit) {
-          qubit_idx = 1 - j;
+      for (IdxType j = 0; j < gate.size(); j++) {
+        IdxType qubit = gate[j];
+        if (!valid_qubit(qubit)) {
+          continue;
+        }
+        if (current_gate_idx[qubit] != -1) {
+          vector<IdxType> prior_gate = circuit[current_gate_idx[qubit]];
+          IdxType qubit_idx;
+          if (prior_gate[j] != qubit) {
+            qubit_idx = 1 - j;
         } else {
           qubit_idx = j;
         }
@@ -95,6 +188,9 @@ void maintain_layer(vector<IdxType> &current_layer_gates_idx,
                     vector<IdxType> &future_layer_gates_idx, IdxType flag) {
   unordered_set<IdxType> updated_set;
   updated_layer_gates_idx.clear();
+  auto valid_qubit = [&](IdxType q) {
+    return q >= 0 && q < static_cast<IdxType>(qubit_state.size());
+  };
   for (IdxType gate_idx : current_layer_gates_idx) {
     if (gate_execute_idx_list.count(gate_idx) > 0) {
       vector<IdxType> gate = circuit[gate_idx];
@@ -102,10 +198,14 @@ void maintain_layer(vector<IdxType> &current_layer_gates_idx,
       future_layer_gates_idx.erase(remove(future_layer_gates_idx.begin(),
                                           future_layer_gates_idx.end(),
                                           gate_idx),
-                                   future_layer_gates_idx.end());
+                                       future_layer_gates_idx.end());
 
-      qubit_state[gate[0]] = 0;
-      qubit_state[gate[1]] = 0;
+      if (valid_qubit(gate[0])) {
+        qubit_state[gate[0]] = 0;
+      }
+      if (valid_qubit(gate[1])) {
+        qubit_state[gate[1]] = 0;
+      }
       vector<IdxType> following_gates = following_gate_idx[gate_idx];
       for (IdxType next_gate_idx : following_gates) {
         gate_dependency[next_gate_idx]--;
@@ -116,8 +216,12 @@ void maintain_layer(vector<IdxType> &current_layer_gates_idx,
                                               future_layer_gates_idx.end(),
                                               next_gate_idx),
                                        future_layer_gates_idx.end());
-          qubit_state[circuit[next_gate_idx][0]] = 1;
-          qubit_state[circuit[next_gate_idx][1]] = 1;
+          if (valid_qubit(circuit[next_gate_idx][0])) {
+            qubit_state[circuit[next_gate_idx][0]] = 1;
+          }
+          if (valid_qubit(circuit[next_gate_idx][1])) {
+            qubit_state[circuit[next_gate_idx][1]] = 1;
+          }
         }
       }
     } else {
@@ -160,20 +264,60 @@ double heuristic(const vector<IdxType> &new_mapping,
     return 0;
   }
   for (IdxType gate_idx : current_layer_gates_idx) {
-    vector<IdxType> gate = circuit[gate_idx];
-    first_cost += distance_mat[new_mapping[gate[0]]][new_mapping[gate[1]]];
+    if (gate_idx < 0 || gate_idx >= static_cast<IdxType>(circuit.size())) {
+      continue;
+    }
+    const auto &gate = circuit[gate_idx];
+    if (gate.size() < 2) {
+      continue;
+    }
+    IdxType ctrl = gate[0];
+    IdxType tgt = gate[1];
+    if (ctrl < 0 || ctrl >= static_cast<IdxType>(new_mapping.size()) ||
+        tgt < 0 || tgt >= static_cast<IdxType>(new_mapping.size())) {
+      continue;
+    }
+    IdxType mapped_ctrl = new_mapping[ctrl];
+    IdxType mapped_tgt = new_mapping[tgt];
+    if (mapped_ctrl < 0 ||
+        mapped_ctrl >= static_cast<IdxType>(distance_mat.size()) ||
+        mapped_tgt < 0 ||
+        mapped_tgt >= static_cast<IdxType>(distance_mat[mapped_ctrl].size())) {
+      continue;
+    }
+    first_cost += distance_mat[mapped_ctrl][mapped_tgt];
   }
-  first_cost /= current_layer_gates_idx.size();
+  first_cost /= std::max<IdxType>(1, current_layer_gates_idx.size());
   if (future_gates_idx.empty()) {
     cost = first_cost;
     return cost;
   }
   double second_cost = 0.0;
   for (IdxType gate_idx : future_gates_idx) {
-    vector<IdxType> gate = circuit[gate_idx];
-    second_cost += distance_mat[new_mapping[gate[0]]][new_mapping[gate[1]]];
+    if (gate_idx < 0 || gate_idx >= static_cast<IdxType>(circuit.size())) {
+      continue;
+    }
+    const auto &gate = circuit[gate_idx];
+    if (gate.size() < 2) {
+      continue;
+    }
+    IdxType ctrl = gate[0];
+    IdxType tgt = gate[1];
+    if (ctrl < 0 || ctrl >= static_cast<IdxType>(new_mapping.size()) ||
+        tgt < 0 || tgt >= static_cast<IdxType>(new_mapping.size())) {
+      continue;
+    }
+    IdxType mapped_ctrl = new_mapping[ctrl];
+    IdxType mapped_tgt = new_mapping[tgt];
+    if (mapped_ctrl < 0 ||
+        mapped_ctrl >= static_cast<IdxType>(distance_mat.size()) ||
+        mapped_tgt < 0 ||
+        mapped_tgt >= static_cast<IdxType>(distance_mat[mapped_ctrl].size())) {
+      continue;
+    }
+    second_cost += distance_mat[mapped_ctrl][mapped_tgt];
   }
-  second_cost /= future_gates_idx.size();
+  second_cost /= std::max<IdxType>(1, future_gates_idx.size());
   cost = first_cost + 0.5 * second_cost;
   return cost;
 }
@@ -202,15 +346,39 @@ vector<IdxType> pick_one_movement(vector<IdxType> &mapping,
   vector<IdxType> l2p_mapping = mapping;
   vector<IdxType> key_p_qubits;
   for (IdxType gate_idx : current_layer) {
+    if (gate_idx < 0 || gate_idx >= static_cast<IdxType>(circuit.size())) {
+      continue;
+    }
     vector<IdxType> gate = circuit[gate_idx];
-    key_p_qubits.push_back(l2p_mapping[gate[0]]);
-    key_p_qubits.push_back(l2p_mapping[gate[1]]);
+    if (gate.size() < 2) {
+      continue;
+    }
+    if (gate[0] >= 0 && gate[0] < static_cast<IdxType>(l2p_mapping.size())) {
+      key_p_qubits.push_back(l2p_mapping[gate[0]]);
+    }
+    if (gate[1] >= 0 && gate[1] < static_cast<IdxType>(l2p_mapping.size())) {
+      key_p_qubits.push_back(l2p_mapping[gate[1]]);
+    }
+  }
+  if (key_p_qubits.empty()) {
+    return {-1, -1};
   }
   vector<vector<IdxType>> possible_pairs;
   for (IdxType p_qubit : key_p_qubits) {
+    if (!chip || p_qubit < 0 ||
+        p_qubit >= static_cast<IdxType>(chip->edge_list.size())) {
+      continue;
+    }
     for (IdxType p_qubit_target : chip->edge_list[p_qubit]) {
+      if (p_qubit_target < 0 ||
+          p_qubit_target >= static_cast<IdxType>(chip->edge_list.size())) {
+        continue;
+      }
       possible_pairs.push_back({p_qubit, p_qubit_target});
     }
+  }
+  if (possible_pairs.empty()) {
+    return {-1, -1};
   }
   vector<double> score(possible_pairs.size(), 0.0);
   for (size_t pair_idx = 0; pair_idx < possible_pairs.size(); ++pair_idx) {
@@ -241,12 +409,28 @@ find_executable_gates(const vector<IdxType> &mapping,
   // Pre-allocate memory using .reserve() for the worst-case scenario where
   // every gate is executable. executable_gates.reserve(current_layer.size());
   for (IdxType gate_idx : current_layer) {
-    IdxType mapped_gate_zero =
-        mapping[circuit[gate_idx][0]]; // Avoid repeated access by storing
-                                       // values in local variables.
-    IdxType mapped_gate_one =
-        mapping[circuit[gate_idx][1]]; // Avoid repeated access by storing
-                                       // values in local variables.
+    if (gate_idx < 0 || gate_idx >= static_cast<IdxType>(circuit.size())) {
+      continue;
+    }
+    const auto &gate = circuit[gate_idx];
+    if (gate.size() < 2) {
+      continue;
+    }
+    IdxType ctrl_qubit = gate[0];
+    IdxType tgt_qubit = gate[1];
+    if (ctrl_qubit < 0 || ctrl_qubit >= static_cast<IdxType>(mapping.size()) ||
+        tgt_qubit < 0 || tgt_qubit >= static_cast<IdxType>(mapping.size())) {
+      continue;
+    }
+    IdxType mapped_gate_zero = mapping[ctrl_qubit];
+    IdxType mapped_gate_one = mapping[tgt_qubit];
+    if (mapped_gate_zero < 0 ||
+        mapped_gate_zero >= static_cast<IdxType>(distance_mat.size()) ||
+        mapped_gate_one < 0 ||
+        mapped_gate_one >=
+            static_cast<IdxType>(distance_mat[mapped_gate_zero].size())) {
+      continue;
+    }
     if (distance_mat[mapped_gate_zero][mapped_gate_one] == 1) {
       executable_gates.insert(gate_idx);
     }
@@ -281,15 +465,85 @@ vector<pair<IdxType, IdxType>> sortWithSwaps(vector<IdxType> &lst) {
   return swaps;
 }
 
-IdxType one_round_optimization(vector<IdxType> &initial_mapping,
-                               vector<Gate> circuit_gate,
-                               vector<vector<IdxType>> distance_mat,
-                               vector<Gate> gate_info, shared_ptr<Chip> chip,
-                               vector<vector<IdxType>> gate_qubit,
-                               vector<Gate> &return_circuit,
-                               IdxType debug_level) {
+IdxType one_round_optimization(
+    vector<IdxType> &initial_mapping, vector<Gate> circuit_gate,
+    vector<vector<IdxType>> distance_mat, vector<Gate> gate_info,
+    shared_ptr<Chip> chip, vector<vector<IdxType>> gate_qubit,
+    vector<Gate> &return_circuit, IdxType debug_level,
+    std::vector<IdxType> *critical_path_indices = nullptr,
+  double *critical_path_latency = nullptr) {
   IdxType swap_num = 0;
   vector<IdxType> mapping = initial_mapping;
+
+  IdxType physical_qubit_count =
+      chip ? chip->chip_qubit_num : static_cast<IdxType>(mapping.size());
+  if (physical_qubit_count <= 0) {
+    physical_qubit_count = static_cast<IdxType>(mapping.size());
+  }
+  std::vector<double> qubit_ready_time(physical_qubit_count, 0.0);
+  std::vector<IdxType> qubit_last_gate(physical_qubit_count, -1);
+  std::vector<double> gate_finish_times;
+  std::vector<IdxType> gate_predecessor;
+  double max_finish_time = 0.0;
+  IdxType max_finish_index = -1;
+
+  auto record_gate = [&](const Gate &gate) {
+    std::vector<IdxType> touched_qubits;
+    if (gate.ctrl >= 0) {
+      touched_qubits.push_back(gate.ctrl);
+    }
+    if (gate.qubit >= 0) {
+      touched_qubits.push_back(gate.qubit);
+    }
+    if (gate.extra >= 0) {
+      touched_qubits.push_back(gate.extra);
+    }
+    std::sort(touched_qubits.begin(), touched_qubits.end());
+    touched_qubits.erase(
+        std::unique(touched_qubits.begin(), touched_qubits.end()),
+        touched_qubits.end());
+
+    double duration = lookup_gate_length(chip, gate);
+    double start_time = 0.0;
+    IdxType predecessor = -1;
+    double predecessor_finish = -1.0;
+    for (IdxType phys_qubit : touched_qubits) {
+      if (phys_qubit < 0 ||
+          phys_qubit >= static_cast<IdxType>(qubit_ready_time.size())) {
+        continue;
+      }
+      double ready = qubit_ready_time[phys_qubit];
+      if (ready > start_time) {
+        start_time = ready;
+      }
+      IdxType last_gate_idx = qubit_last_gate[phys_qubit];
+      if (last_gate_idx >= 0) {
+        double finish = gate_finish_times[last_gate_idx];
+        if (finish > predecessor_finish) {
+          predecessor_finish = finish;
+          predecessor = last_gate_idx;
+        }
+      }
+    }
+
+    double end_time = start_time + duration;
+    IdxType gate_index = static_cast<IdxType>(return_circuit.size());
+    return_circuit.push_back(gate);
+    gate_finish_times.push_back(end_time);
+    gate_predecessor.push_back(predecessor);
+    if (end_time >= max_finish_time) {
+      max_finish_time = end_time;
+      max_finish_index = gate_index;
+    }
+    for (IdxType phys_qubit : touched_qubits) {
+      if (phys_qubit < 0 ||
+          phys_qubit >= static_cast<IdxType>(qubit_ready_time.size())) {
+        continue;
+      }
+      qubit_ready_time[phys_qubit] = end_time;
+      qubit_last_gate[phys_qubit] = gate_index;
+    }
+  };
 
   //^find all single qubit dependency
   IdxType executed_gates_num = 0;
@@ -386,7 +640,7 @@ IdxType one_round_optimization(vector<IdxType> &initial_mapping,
         // mapping[single_gate_info[single_gate_index].qubit], -1,
         // cur_gate.theta); new_gate.set_gm(cur_gate.gm_real, cur_gate.gm_imag,
         // 2);
-        return_circuit.push_back(cur_gate);
+        record_gate(cur_gate);
         visited_gate.insert(cur_index);
       }
       Gate cur_gate = circuit_gate[ee];
@@ -397,7 +651,7 @@ IdxType one_round_optimization(vector<IdxType> &initial_mapping,
       // Gate new_gate = Gate(cur_gate.op_name, mapping[cur_gate.qubit],
       // mapping[cur_gate.ctrl], cur_gate.theta);
       // new_gate.set_gm(cur_gate.gm_real, cur_gate.gm_imag, 4);
-      return_circuit.push_back(cur_gate);
+      record_gate(cur_gate);
     }
     if (!execute_gates_idx.empty()) {
       cpu_timer trans_timer;
@@ -418,10 +672,17 @@ IdxType one_round_optimization(vector<IdxType> &initial_mapping,
                             qubit_num, circuit, chip);
       trans_timer.stop_timer();
       total_pickone_time += trans_timer.measure();
+      if (pair.size() < 2 || pair[0] < 0 || pair[1] < 0) {
+        if (debug_level > 1) {
+          cout << "No valid swap candidate found. Aborting further routing iterations." << endl;
+        }
+        executed_gates_num = gate_num;
+        break;
+      }
       // cout << "swap " << pair[0] << " " << pair[1] << endl;
       // all_gate_output.push_back({pair[0], pair[1]});
       Gate SWAPG = Gate(OP::SWAP, IdxType(pair[1]), IdxType(pair[0]));
-      return_circuit.push_back(SWAPG);
+      record_gate(SWAPG);
       // all_gate_type.push_back(1);
       swap_num += 1;
     }
@@ -436,7 +697,22 @@ IdxType one_round_optimization(vector<IdxType> &initial_mapping,
       Gate cur_gate = single_gate_info[i];
       IdxType q_qubit = mapping[single_gate_info[i].qubit];
       cur_gate.qubit = q_qubit;
-      return_circuit.push_back(cur_gate);
+      record_gate(cur_gate);
+    }
+  }
+  if (critical_path_indices != nullptr || critical_path_latency != nullptr) {
+    std::vector<IdxType> path_indices;
+    IdxType current = max_finish_index;
+    while (current >= 0) {
+      path_indices.push_back(current);
+      current = gate_predecessor[current];
+    }
+    std::reverse(path_indices.begin(), path_indices.end());
+    if (critical_path_indices != nullptr) {
+      *critical_path_indices = path_indices;
+    }
+    if (critical_path_latency != nullptr) {
+      *critical_path_latency = max_finish_time;
     }
   }
   initial_mapping = mapping;
@@ -510,9 +786,12 @@ void Routing(shared_ptr<Circuit> circuit, shared_ptr<Chip> chip,
     }
     cout << endl;
   }
+  std::vector<IdxType> critical_path_indices;
+  double critical_path_latency = 0.0;
   swap_num = one_round_optimization(
       initial_mapping, cx_gates, chip->distance_mat, gate_info, chip,
-      all_gates_index, return_circuit, debug_level);
+      all_gates_index, return_circuit, debug_level, &critical_path_indices,
+      &critical_path_latency);
   vector<Gate> gate_info_after_transpiler;
   vector<Gate> decompose_gate_info;
   vector<string> decompose_gate_name;
@@ -526,5 +805,6 @@ void Routing(shared_ptr<Circuit> circuit, shared_ptr<Chip> chip,
   gate_info = return_circuit;
 
   circuit->set_gates(return_circuit);
+  circuit->set_critical_path(critical_path_indices, critical_path_latency);
   n_gates = IdxType(return_circuit.size());
 }

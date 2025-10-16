@@ -26,6 +26,8 @@ void print_help()
     std::cout << "-backend_list     Print the available device backends" << std::endl;
     std::cout << "-m <name>         Set the transpiler targeted device, default is ibmq" << std::endl;
     std::cout << "-v <0/1/2>        Set the output level, default is 0" << std::endl;
+    std::cout << "-full_fidelity    Use full-circuit fidelity heuristic instead of critical-path mode" << std::endl;
+    std::cout << "-cp_mode <product|additive>  Choose critical-path aggregation strategy (default additive)" << std::endl;
     std::cout << "-o <path>         Set the output file, "
         << "default is data/output/transpiled_modename_filename.qasm" << std::endl;
     std::cout << "-h                print the help function" << std::endl;
@@ -38,6 +40,8 @@ int main(int argc, char **argv)
     std::string mode_name = "ibmq";
     IdxType debug_level = 0;
     std::string output_path = "../data/output/";
+    bool use_full_fidelity = false;
+    CriticalPathHeuristicMode cp_mode = CriticalPathHeuristicMode::AdditiveAverage;
     std::map<std::string, IdxType> machineQubits = {
         {"ibmq_toronto", 27},
         {"ibmq_jakarta", 7},
@@ -69,6 +73,32 @@ int main(int argc, char **argv)
         if (cmdOptionExists(argv, argv + argc, "-limited"))
         {
             run_with_limit = true;
+        }
+        if (cmdOptionExists(argv, argv + argc, "-full_fidelity"))
+        {
+            use_full_fidelity = true;
+        }
+        if (cmdOptionExists(argv, argv + argc, "-cp_mode"))
+        {
+            std::string cp_mode_value = std::string(getCmdOption(argv, argv + argc, "-cp_mode"));
+            std::string lowered = cp_mode_value;
+            std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+                           [](unsigned char ch)
+                           { return static_cast<char>(std::tolower(ch)); });
+            if (lowered == "product" || lowered == "log" || lowered == "multiplicative")
+            {
+                cp_mode = CriticalPathHeuristicMode::LogProduct;
+            }
+            else if (lowered == "additive" || lowered == "sum" || lowered == "average" || lowered == "avg")
+            {
+                cp_mode = CriticalPathHeuristicMode::AdditiveAverage;
+            }
+            else
+            {
+                std::cerr << "Error: unknown -cp_mode value '" << cp_mode_value
+                          << "'. Expected 'product' or 'additive'." << std::endl;
+                return 1;
+            }
         }
         if (cmdOptionExists(argv, argv + argc, "-v"))
         {
@@ -159,7 +189,7 @@ int main(int argc, char **argv)
                 return 1;
             }
             transpiler(circuit, chip, parser.get_list_cregs(),
-                       debug_level, mode);
+                       debug_level, mode, use_full_fidelity, cp_mode);
             //================= Write out ==================
             dumpQASM(circuit, filename, output_path, debug_level, mode);
             cout << "Saving output qasm to: " << output_path << endl;
