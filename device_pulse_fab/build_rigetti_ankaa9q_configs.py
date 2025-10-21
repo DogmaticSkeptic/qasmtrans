@@ -342,6 +342,7 @@ def build_pulse_library(
     dt_ns: float,
     sigma_frac: float,
     tolerance: float,
+    ideal: bool = False,
 ) -> Tuple[List[dict], Dict[str, float]]:
     num_qubits = int(metadata.get("num_qubits", 0))
     pulses: List[dict] = []
@@ -350,16 +351,20 @@ def build_pulse_library(
         duration_s = float(gate_lens.get(f"rx{q}", 0.0))
         duration_ns = duration_s * 1e9
         gate_err = float(gate_errs.get(f"rx{q}", 0.0))
-        target_fidelity = max(0.0, 1.0 - gate_err)
+        target_fidelity = 1.0 if ideal else max(0.0, 1.0 - gate_err)
         for label, theta in RX_ANGLES:
-            theta_eff, fidelity = calibrate_single_qubit_theta(
-                theta,
-                target_fidelity,
-                duration_ns,
-                dt_ns,
-                sigma_frac,
-                tolerance,
-            )
+            if ideal:
+                theta_eff = theta
+                fidelity = 1.0
+            else:
+                theta_eff, fidelity = calibrate_single_qubit_theta(
+                    theta,
+                    target_fidelity,
+                    duration_ns,
+                    dt_ns,
+                    sigma_frac,
+                    tolerance,
+                )
             _, samples, amplitude, sigma_ns = rx_waveform(theta_eff, duration_ns, dt_ns, sigma_frac)
             fidelity_map[f"rx_q{q}_{label}"] = fidelity
             calibration = {
@@ -367,7 +372,6 @@ def build_pulse_library(
                 "duration_ns": float(duration_ns),
                 "sigma_ns": float(sigma_ns),
                 "omega_peak_rad_per_s": float(amplitude),
-                "area_omega_rad": float(theta_eff),
                 "default_phase_rad": 0.0,
                 "expected_fidelity": fidelity,
             }
@@ -413,14 +417,18 @@ def build_pulse_library(
         duration_s = float(gate_lens.get(key, gate_lens.get(key.lower(), 0.0)))
         duration_ns = duration_s * 1e9
         gate_err = float(gate_errs.get(key, gate_errs.get(key.lower(), 0.0)))
-        target_fidelity = max(0.0, 1.0 - gate_err)
-        theta_eff, fidelity = calibrate_iswap_theta(
-            theta_nominal,
-            target_fidelity,
-            duration_ns,
-            dt_ns,
-            tolerance,
-        )
+        target_fidelity = 1.0 if ideal else max(0.0, 1.0 - gate_err)
+        if ideal:
+            theta_eff = theta_nominal
+            fidelity = 1.0
+        else:
+            theta_eff, fidelity = calibrate_iswap_theta(
+                theta_nominal,
+                target_fidelity,
+                duration_ns,
+                dt_ns,
+                tolerance,
+            )
         amplitude = theta_eff / (duration_s if duration_s > EPS else 1.0)
         samples = np.full(int(round(duration_ns / dt_ns)) + 1, amplitude, dtype=float)
         fidelity_map[f"iswap_q{qi}_q{qj}"] = fidelity
@@ -651,18 +659,20 @@ def run_rx(
             "type": "gaussian",
             "target_qubit": int(target),
             "theta_rad": float(theta),
+            "theta_actual_rad": float(theta),
             "duration_ns": float(duration_ns),
             "dt_ns": float(dt_ns),
             "sigma_ns": float(sigma * 1e9),
             "omega_peak_rad_per_s": float(A_peak),
             "I_peak_rad_per_s": float(A_peak),
-            "area_omega_rad": float(np.trapezoid(omega, dx=dt)),
             "default_phase_rad": float(phase),
+            "expected_fidelity": None,
         }
     else:
         params_entry = dict(pulse_entry.get("parameters", {}))
         calib_entry = dict(pulse_entry.get("calibration", {}))
         theta = float(params_entry.get("theta", theta))
+        theta_actual = float(calib_entry.get("theta_actual_rad", theta))
         duration = float(calib_entry.get("duration_ns", params_entry.get("duration_ns", duration_ns))) * 1e-9
         duration_ns = duration * 1e9
         t, samples_i, samples_q, dt = extract_waveform(pulse_entry)
@@ -679,12 +689,12 @@ def run_rx(
             "type": pulse_entry.get("waveform_type", "arbitrary"),
             "target_qubit": int(target),
             "theta_rad": float(theta),
+            "theta_actual_rad": float(theta_actual),
             "duration_ns": float(duration_ns),
             "dt_ns": float(dt * 1e9),
             "sigma_ns": float(calib_entry.get("sigma_ns", SIGMA_FRAC * duration_ns)),
             "omega_peak_rad_per_s": float(calib_entry.get("omega_peak_rad_per_s", np.max(np.abs(samples_i)))),
             "I_peak_rad_per_s": float(calib_entry.get("omega_peak_rad_per_s", np.max(np.abs(samples_i)))),
-            "area_omega_rad": float(calib_entry.get("area_omega_rad", theta)),
             "default_phase_rad": float(calib_entry.get("default_phase_rad", phase)),
             "expected_fidelity": calib_entry.get("expected_fidelity"),
         }
@@ -710,6 +720,7 @@ def run_iswap(duration_ns, dt_ns=DT_NS, pulse_entry: dict | None = None):
             "dt_ns": float(dt_ns),
             "J_amp_rad_per_s": float(J_amp),
             "J_area_rad": float(J_area),
+            "theta_actual_rad": float(J_area),
         }
     else:
         params_entry = dict(pulse_entry.get("parameters", {}))
@@ -718,6 +729,7 @@ def run_iswap(duration_ns, dt_ns=DT_NS, pulse_entry: dict | None = None):
         duration_ns = duration * 1e9
         t, samples_i, samples_q, dt = extract_waveform(pulse_entry)
         J = {LEGACY_EDGE: samples_i}
+        theta_actual = float(calib_entry.get("theta_actual_rad", np.trapezoid(samples_i, dx=dt)))
         params = {
             "type": pulse_entry.get("waveform_type", "flat_top"),
             "edge": [int(LEGACY_EDGE[0]), int(LEGACY_EDGE[1])],
@@ -725,7 +737,8 @@ def run_iswap(duration_ns, dt_ns=DT_NS, pulse_entry: dict | None = None):
             "dt_ns": float(dt * 1e9),
             "J_amp_rad_per_s": float(calib_entry.get("J_amp_rad_per_s", np.max(np.abs(samples_i)))),
             "J_area_rad": float(calib_entry.get("J_area_rad", np.trapezoid(samples_i, dx=dt))),
-            "theta": float(calib_entry.get("theta_actual_rad", np.trapezoid(samples_i, dx=dt))),
+            "theta": float(calib_entry.get("theta_actual_rad", theta_actual)),
+            "theta_actual_rad": float(theta_actual),
             "expected_fidelity": calib_entry.get("expected_fidelity"),
         }
     dt = dt if pulse_entry is not None else dt_ns * 1e-9
@@ -832,14 +845,15 @@ def simulate_sequence_on_q0(blocks, pulses_map, dt_ns=DT_NS, sigma_frac=SIGMA_FR
 
 
 def print_params_table(rx_pi_params, rx_pi2_params, rz_rule, iswap_params):
-    headers = ["gate", "duration_ns", "sigma_ns", "peak_rad_per_s", "area_rad", "default_phase_rad"]
+    headers = ["gate", "duration_ns", "sigma_ns", "peak_rad_per_s", "theta_actual_rad", "expected_fidelity", "default_phase_rad"]
     rows = [
         [
             "rx_pi",
             rx_pi_params["duration_ns"],
             rx_pi_params["sigma_ns"],
             rx_pi_params["omega_peak_rad_per_s"],
-            rx_pi_params["area_omega_rad"],
+            rx_pi_params["theta_actual_rad"],
+            rx_pi_params.get("expected_fidelity") or "-",
             rx_pi_params["default_phase_rad"],
         ],
         [
@@ -847,16 +861,18 @@ def print_params_table(rx_pi_params, rx_pi2_params, rz_rule, iswap_params):
             rx_pi2_params["duration_ns"],
             rx_pi2_params["sigma_ns"],
             rx_pi2_params["omega_peak_rad_per_s"],
-            rx_pi2_params["area_omega_rad"],
+            rx_pi2_params["theta_actual_rad"],
+            rx_pi2_params.get("expected_fidelity") or "-",
             rx_pi2_params["default_phase_rad"],
         ],
-        ["rz_virtual", "-", "-", "-", "-", rz_rule["calibration_reference_phase_rad"]],
+        ["rz_virtual", "-", "-", "-", "-", "-", rz_rule["calibration_reference_phase_rad"]],
         [
             "iswap",
             iswap_params["duration_ns"],
             "-",
             iswap_params["J_amp_rad_per_s"],
-            iswap_params["J_area_rad"],
+            iswap_params.get("theta_actual_rad", "-"),
+            iswap_params.get("expected_fidelity") or "-",
             "-",
         ],
     ]
@@ -1140,6 +1156,11 @@ def main() -> None:
     parser.add_argument("--qubits", type=str, help="Comma-separated list of physical qubit indices to include")
     parser.add_argument("--out-device", type=Path, help="Output path for generated device JSON")
     parser.add_argument("--out-pulses", type=Path, help="Output path for generated pulse JSON")
+    parser.add_argument(
+        "--ideal-gates",
+        action="store_true",
+        help="Generate idealized pulse/device configs with unity fidelities and zero gate errors.",
+    )
     args = parser.parse_args()
 
     devicelib_doc = load_json(args.devicelib)
@@ -1170,6 +1191,17 @@ def main() -> None:
     filtered_devicelib = filter_devicelib(devicelib_doc, selected_qubits, mapping)
     device_doc, gate_lens, gate_errs = build_device_document(filtered_devicelib)
 
+    if args.ideal_gates:
+        zero_errs = {key: 0.0 for key in gate_errs}
+        gate_errs = zero_errs
+        device_doc["gate_errs"] = zero_errs
+        metadata = device_doc.setdefault("metadata", {})
+        meta_errs = metadata.get("gate_errs")
+        if isinstance(meta_errs, dict):
+            metadata["gate_errs"] = {key: 0.0 for key in meta_errs}
+        else:
+            metadata["gate_errs"] = zero_errs.copy()
+
     num_qubits = len(selected_qubits)
     calibrated_name = f"rigetti_ankaa{num_qubits}q_calibrated"
     device_doc["name"] = calibrated_name
@@ -1189,6 +1221,7 @@ def main() -> None:
         DT_NS,
         SIGMA_FRAC,
         FIDELITY_TOL,
+        ideal=args.ideal_gates,
     )
     pulse_doc = compose_pulse_document(device_doc["metadata"], pulses, calibrated_name)
 

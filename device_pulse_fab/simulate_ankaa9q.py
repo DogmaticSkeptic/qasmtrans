@@ -82,6 +82,38 @@ def parse_edges(device_metadata: dict, schedule: Sequence[dict], max_qubit: int)
     return sorted(edges)
 
 
+def _accumulate_relaxation_map(source, target: Dict[int, float]) -> None:
+    if isinstance(source, dict):
+        items = source.items()
+    elif isinstance(source, (list, tuple)):
+        items = enumerate(source)
+    else:
+        return
+    for key, value in items:
+        try:
+            idx = int(key)
+        except (TypeError, ValueError):
+            continue
+        try:
+            val = float(value)
+        except (TypeError, ValueError):
+            continue
+        if val > 0.0:
+            target[idx] = val
+
+
+def extract_t1_t2_times(device_doc: dict) -> Tuple[Dict[int, float], Dict[int, float]]:
+    t1_map: Dict[int, float] = {}
+    t2_map: Dict[int, float] = {}
+    _accumulate_relaxation_map(device_doc.get("T1"), t1_map)
+    _accumulate_relaxation_map(device_doc.get("T2"), t2_map)
+    metadata = device_doc.get("metadata")
+    if isinstance(metadata, dict):
+        _accumulate_relaxation_map(metadata.get("T1"), t1_map)
+        _accumulate_relaxation_map(metadata.get("T2"), t2_map)
+    return t1_map, t2_map
+
+
 def evaluate_expression(expr: str) -> float:
     expr = expr.strip()
     if not expr:
@@ -401,6 +433,34 @@ def embed_two(unitary: np.ndarray, q0: int, q1: int, num_qubits: int) -> qt.Qobj
     return qt.Qobj(data, dims=[[2] * num_qubits, [2] * num_qubits])
 
 
+def build_collapse_ops(
+    num_qubits: int,
+    t1_times: Dict[int, float] | None = None,
+    t2_times: Dict[int, float] | None = None,
+    relax_to_ground: bool = True,
+) -> List[qt.Qobj]:
+    collapse: List[qt.Qobj] = []
+    t1_times = t1_times or {}
+    t2_times = t2_times or {}
+    for q in range(num_qubits):
+        t1 = float(t1_times.get(q, 0.0) or 0.0)
+        gamma1 = 0.0
+        if t1 > 0.0:
+            gamma1 = 1.0 / t1
+            if relax_to_ground and gamma1 > 0.0:
+                lower = embed_single(qt.sigmam(), q, num_qubits)
+                collapse.append(math.sqrt(gamma1) * lower)
+        t2 = float(t2_times.get(q, 0.0) or 0.0)
+        gamma_phi = 0.0
+        if t2 > 0.0:
+            gamma2 = 1.0 / t2
+            gamma_phi = max(0.0, gamma2 - 0.5 * gamma1)
+        if gamma_phi > 0.0:
+            sz = embed_single(qt.sigmaz(), q, num_qubits)
+            collapse.append(math.sqrt(gamma_phi / 2.0) * sz)
+    return collapse
+
+
 def single_xy_unitary(theta: float, phase: float) -> qt.Qobj:
     return (-1j * theta / 2.0 * (math.cos(phase) * qt.sigmax() + math.sin(phase) * qt.sigmay())).expm()
 
@@ -643,6 +703,9 @@ def simulate_pulse_schedule(
     num_qubits: int,
     edges: Iterable[Tuple[int, int]],
     rho_initial: qt.Qobj | None = None,
+    t1_times: Dict[int, float] | None = None,
+    t2_times: Dict[int, float] | None = None,
+    relax_to_ground: bool = True,
 ) -> Tuple[
     qt.Qobj,
     List[qt.Qobj],
@@ -873,7 +936,16 @@ def simulate_pulse_schedule(
     t_eval = np.concatenate([time_grid, [time_grid[-1] + dt_base]])
     H_terms = build_hamiltonian(time_grid, dt_base, I_env, Q_env, J_env, num_qubits, edges_set)
     rho0 = rho_initial if rho_initial is not None else qt.ket2dm(qt.tensor([qt.basis(2, 0)] * num_qubits))
-    if not H_terms:
+    collapse_ops: List[qt.Qobj] = []
+    if t1_times or t2_times:
+        collapse_ops = build_collapse_ops(
+            num_qubits,
+            t1_times=t1_times,
+            t2_times=t2_times,
+            relax_to_ground=relax_to_ground,
+        )
+
+    if not H_terms and not collapse_ops:
         phase_snapshot = {q: phase_map.get(q, 0.0) for q in range(num_qubits)}
         residual_snapshot = {q: residual_phase.get(q, 0.0) for q in range(num_qubits)}
         return (
@@ -889,7 +961,7 @@ def simulate_pulse_schedule(
         )
 
     opts = qt.Options(method="bdf", rtol=1e-7, atol=1e-9, nsteps=300000, max_step=dt_base, progress_bar=None, store_states=True)
-    result = qt.mesolve(H_terms, rho0, t_eval, c_ops=[], e_ops=[], options=opts)
+    result = qt.mesolve(H_terms, rho0, t_eval, c_ops=collapse_ops, e_ops=[], options=opts)
     phase_snapshot = {q: phase_map.get(q, 0.0) for q in range(num_qubits)}
     residual_snapshot = {q: residual_phase.get(q, 0.0) for q in range(num_qubits)}
     return rho0, result.states, t_eval, dt_base, physical_events, virtual_events, phase_snapshot, residual_snapshot, event_records
@@ -907,6 +979,8 @@ def main() -> None:
     parser.add_argument("--qasm", required=True, type=Path, help="Original QASM circuit file")
     parser.add_argument("--output", type=Path, help="Optional JSON report path")
     parser.add_argument("-v", "--verbose", type=int, default=0, help="Verbosity level (>=1 prints per-pulse fidelities)")
+    parser.add_argument("--no-relax-to-ground", action="store_true", help="Do not replenish qubits to ground state during T1 relaxation.")
+    parser.add_argument("--no-t1t2", action="store_true", help="Ignore T1/T2 data from the device file (unitary-only evolution).")
     args = parser.parse_args()
 
     pulse_doc = load_json(args.pulse)
@@ -945,6 +1019,11 @@ def main() -> None:
             if expected is not None and delta is not None and abs(delta) > tolerance:
                 print(f"    WARNING: pulse '{check['id']}' deviates from expected fidelity by {delta:+.3e}")
 
+    if args.no_t1t2:
+        t1_map, t2_map = {}, {}
+    else:
+        t1_map, t2_map = extract_t1_t2_times(device_doc)
+
     (
         rho0,
         states,
@@ -955,7 +1034,14 @@ def main() -> None:
         final_phase_map,
         residual_phase_map,
         event_records,
-    ) = simulate_pulse_schedule(pulse_doc, num_qubits, edges)
+    ) = simulate_pulse_schedule(
+        pulse_doc,
+        num_qubits,
+        edges,
+        t1_times=t1_map,
+        t2_times=t2_map,
+        relax_to_ground=not args.no_relax_to_ground,
+    )
     rho_sim_state = states[-1] if states else rho0
     rho_sim = qt.ket2dm(rho_sim_state) if rho_sim_state.isket else rho_sim_state
     if ideal_progression_overall:

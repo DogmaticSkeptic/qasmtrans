@@ -9,6 +9,7 @@
 #include <sstream>
 #include <iostream>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 #include <filesystem>
@@ -20,6 +21,12 @@
 #include "IR/gate.hpp"
 #include "IR/circuit.hpp"
 #include "nlomann/json.hpp"
+
+namespace QASMTrans
+{
+    extern std::unordered_set<std::string> g_device_basis_gates;
+    extern std::unordered_map<std::string, std::string> g_merged_gate_aliases;
+}
 
 namespace QASMTrans
 {
@@ -65,6 +72,13 @@ namespace QASMTrans
             ValType duration = 0.0;
             ValType finish = 0.0;
             std::ptrdiff_t predecessor = -1;
+            IdxType logical_gate_id = -1;
+            std::string logical_label;
+            ValType theta = 0.0;
+            ValType phi = 0.0;
+            ValType lam = 0.0;
+            ValType gamma = 0.0;
+            bool is_basis_gate = false;
         };
 
         struct GateContribution
@@ -193,6 +207,33 @@ namespace QASMTrans
                 return gate.gamma;
             }
             return std::numeric_limits<ValType>::quiet_NaN();
+        }
+
+        inline bool isNativeRigettiRxAngle(ValType theta)
+        {
+            if (std::abs(theta) < 1e-9)
+            {
+                return true;
+            }
+            ValType half_pi = PI / 2;
+            ValType ratio = theta / half_pi;
+            return std::abs(ratio - std::round(ratio)) < 1e-6;
+        }
+
+        inline bool logicalLabelHasParameters(const std::string &label)
+        {
+            auto open = label.find('[');
+            if (open == std::string::npos)
+            {
+                return false;
+            }
+            auto close = label.find(']', open);
+            if (close == std::string::npos)
+            {
+                return false;
+            }
+            auto eq = label.find('=', open);
+            return eq != std::string::npos && eq < close;
         }
 
         inline const PulseDefinition *selectPulseDefinition(const std::vector<PulseDefinition> &candidates,
@@ -350,7 +391,8 @@ namespace QASMTrans
 
     } // namespace pulses
 
-    inline pulses::CriticalPathResult computeCriticalPath(const std::vector<pulses::GateTimingInfo> &timings)
+    inline pulses::CriticalPathResult computeCriticalPath(const std::vector<pulses::GateTimingInfo> &timings,
+                                                          bool allow_parameterized_candidates = true)
     {
         using namespace pulses;
         CriticalPathResult result;
@@ -384,7 +426,16 @@ namespace QASMTrans
         for (size_t idx : path_indices)
         {
             const GateTimingInfo &info = timings[idx];
-            GateContribution &entry = result.contributions[info.gate];
+            if (info.is_basis_gate)
+            {
+                continue;
+            }
+            if (!allow_parameterized_candidates && logicalLabelHasParameters(info.logical_label))
+            {
+                continue;
+            }
+            const std::string &key = !info.logical_label.empty() ? info.logical_label : info.gate;
+            GateContribution &entry = result.contributions[key];
             entry.total_duration += info.duration;
             entry.count += 1;
         }
@@ -397,7 +448,8 @@ namespace QASMTrans
                            const std::string &backend_path,
                            const std::string &pulse_template_path,
                            const std::string &output_path,
-                           IdxType debug_level)
+                           IdxType debug_level,
+                           bool allow_parameterized_candidates = true)
     {
         using namespace pulses;
         PulseTemplateLibrary library = loadPulseTemplate(pulse_template_path);
@@ -445,7 +497,7 @@ namespace QASMTrans
 
         for (const auto &gate : original_gates)
         {
-            std::string gate_name_raw = toLower(OP_NAMES[gate.op_name]);
+            std::string gate_name_raw = gate.lower_name();
             std::string gate_name_canonical = canonicalGateForRigetti(gate_name_raw, rigetti_mode);
             Gate gate_adjusted = gate;
             gate_adjusted.theta = rigettiThetaForGate(gate, rigetti_mode);
@@ -457,11 +509,21 @@ namespace QASMTrans
                 {
                     // Expand Rx(theta) into virtual RZ and calibrated Rx(pi/2) pulses.
                     IdxType target = qubits.empty() ? gate.qubit : qubits.front();
-                    gates.emplace_back(OP::RZ, target, -1, -1, 1, -PI / 2.0);
-                    gates.emplace_back(OP::RX, target, -1, -1, 1, PI / 2.0);
-                    gates.emplace_back(OP::RZ, target, -1, -1, 1, effective_theta);
-                    gates.emplace_back(OP::RX, target, -1, -1, 1, -PI / 2.0);
-                    gates.emplace_back(OP::RZ, target, -1, -1, 1, PI / 2.0);
+                    Gate rz1(OP::RZ, target, -1, -1, 1, -PI / 2.0);
+                    rz1.inherit_logical_metadata(gate);
+                    gates.push_back(rz1);
+                    Gate rx1(OP::RX, target, -1, -1, 1, PI / 2.0);
+                    rx1.inherit_logical_metadata(gate);
+                    gates.push_back(rx1);
+                    Gate rz2(OP::RZ, target, -1, -1, 1, effective_theta);
+                    rz2.inherit_logical_metadata(gate);
+                    gates.push_back(rz2);
+                    Gate rx2(OP::RX, target, -1, -1, 1, -PI / 2.0);
+                    rx2.inherit_logical_metadata(gate);
+                    gates.push_back(rx2);
+                    Gate rz3(OP::RZ, target, -1, -1, 1, PI / 2.0);
+                    rz3.inherit_logical_metadata(gate);
+                    gates.push_back(rz3);
                     continue;
                 }
             }
@@ -473,7 +535,7 @@ namespace QASMTrans
         size_t gate_index = 0;
         for (const auto &gate : gates)
         {
-            std::string gate_name_raw = toLower(OP_NAMES[gate.op_name]);
+            std::string gate_name_raw = gate.lower_name();
             std::string gate_name = canonicalGateForRigetti(gate_name_raw, rigetti_mode);
             if (gate_name.empty())
             {
@@ -572,6 +634,11 @@ namespace QASMTrans
             {
                 entry["virtual"] = true;
             }
+            if (gate.has_logical_metadata())
+            {
+                entry["logical_gate_id"] = gate.logical_gate_id;
+                entry["logical_label"] = gate.logical_label;
+            }
             json parameters = json::object();
             ValType theta_effective = rigettiThetaForGate(gate, rigetti_mode);
             if (theta_effective != 0.0)
@@ -594,13 +661,28 @@ namespace QASMTrans
             {
                 entry["parameters"] = parameters;
             }
+            const bool is_basis_gate = g_device_basis_gates.find(gate.lower_name()) != g_device_basis_gates.end();
             schedule.push_back(entry);
             for (auto q : qubits)
             {
                 availability[q] = QubitAvailability{finish, static_cast<std::ptrdiff_t>(current_gate_index)};
             }
             used_ids.insert(definition.id);
-            gate_timings.push_back(GateTimingInfo{gate_name, qubits, start_time, duration, finish, predecessor});
+            GateTimingInfo timing_info;
+            timing_info.gate = gate_name;
+            timing_info.qubits = qubits;
+            timing_info.start = start_time;
+            timing_info.duration = duration;
+            timing_info.finish = finish;
+            timing_info.predecessor = predecessor;
+            timing_info.logical_gate_id = gate.logical_gate_id;
+            timing_info.logical_label = gate.logical_label;
+            timing_info.theta = theta_effective;
+            timing_info.phi = gate.phi;
+            timing_info.lam = gate.lam;
+            timing_info.gamma = gate.gamma;
+            timing_info.is_basis_gate = is_basis_gate;
+            gate_timings.push_back(timing_info);
         }
 
         json pulse_library = json::array();
@@ -674,7 +756,7 @@ namespace QASMTrans
         output["pulse_library"] = pulse_library;
         output["schedule"] = schedule;
 
-        CriticalPathResult critical_path_result = computeCriticalPath(gate_timings);
+        CriticalPathResult critical_path_result = computeCriticalPath(gate_timings, allow_parameterized_candidates);
         json critical_summary = json::object();
         critical_summary["total_duration"] = critical_path_result.total_duration;
         critical_summary["gate_count"] = critical_path_result.gate_indices.size();
@@ -684,9 +766,17 @@ namespace QASMTrans
             path_indices.push_back(idx);
         }
         critical_summary["path_indices"] = path_indices;
+        critical_summary["allow_parameterized_candidates"] = allow_parameterized_candidates;
 
         std::vector<std::pair<std::string, GateContribution>> contributions(
             critical_path_result.contributions.begin(), critical_path_result.contributions.end());
+        contributions.erase(
+            std::remove_if(contributions.begin(), contributions.end(), [](const auto &entry)
+                           {
+                               const std::string &gate = entry.first;
+                               return g_device_basis_gates.find(gate) != g_device_basis_gates.end();
+                           }),
+            contributions.end());
         std::sort(contributions.begin(), contributions.end(), [](const auto &lhs, const auto &rhs)
                   {
                       if (std::abs(lhs.second.total_duration - rhs.second.total_duration) > 1e-9)
@@ -710,7 +800,111 @@ namespace QASMTrans
             top_gates.push_back(entry);
         }
         critical_summary["top_gates"] = top_gates;
+
+        std::unordered_set<size_t> critical_path_indices(
+            critical_path_result.gate_indices.begin(), critical_path_result.gate_indices.end());
+
+        std::unordered_map<IdxType, ValType> logical_instance_duration;
+        std::unordered_map<IdxType, std::string> logical_instance_label;
+        std::unordered_map<IdxType, std::vector<IdxType>> logical_instance_qubits;
+        for (size_t idx = 0; idx < gate_timings.size(); ++idx)
+        {
+            if (critical_path_indices.find(idx) == critical_path_indices.end())
+            {
+                continue;
+            }
+            const auto &timing = gate_timings[idx];
+            bool skip_logical = false;
+            if (!timing.logical_label.empty())
+            {
+                std::string base_label = timing.logical_label;
+                auto bracket = base_label.find('[');
+                if (bracket != std::string::npos)
+                {
+                    base_label = base_label.substr(0, bracket);
+                }
+                std::string base_lower = toLower(base_label);
+                if (!base_lower.empty())
+                {
+                    bool is_merged_gate = base_lower.rfind("merged_", 0) == 0;
+                    if (!is_merged_gate && g_device_basis_gates.find(base_lower) != g_device_basis_gates.end())
+                    {
+                        if (base_lower == "rx")
+                        {
+                            skip_logical = isNativeRigettiRxAngle(timing.theta);
+                        }
+                        else
+                        {
+                            skip_logical = true;
+                        }
+                    }
+                }
+            }
+            if (skip_logical || timing.logical_gate_id < 0 || timing.logical_label.empty())
+            {
+                continue;
+            }
+            if (!allow_parameterized_candidates && logicalLabelHasParameters(timing.logical_label))
+            {
+                continue;
+            }
+            logical_instance_duration[timing.logical_gate_id] += timing.duration;
+            logical_instance_label.emplace(timing.logical_gate_id, timing.logical_label);
+            auto &stored_qubits = logical_instance_qubits[timing.logical_gate_id];
+            for (auto q : timing.qubits)
+            {
+                if (std::find(stored_qubits.begin(), stored_qubits.end(), q) == stored_qubits.end())
+                {
+                    stored_qubits.push_back(q);
+                }
+            }
+        }
+
+        std::unordered_map<std::string, GateContribution> logical_totals;
+        std::unordered_map<std::string, std::map<std::vector<IdxType>, GateContribution>> logical_qubit_totals;
+        for (const auto &pair : logical_instance_duration)
+        {
+            const auto &label = logical_instance_label[pair.first];
+            GateContribution &entry = logical_totals[label];
+            entry.total_duration += pair.second;
+            entry.count += 1;
+            const auto &qubits_vec = logical_instance_qubits[pair.first];
+            if (!qubits_vec.empty())
+            {
+                GateContribution &q_entry = logical_qubit_totals[label][qubits_vec];
+                q_entry.total_duration += pair.second;
+                q_entry.count += 1;
+            }
+        }
+
+        std::vector<std::pair<std::string, GateContribution>> logical_entries(
+            logical_totals.begin(), logical_totals.end());
+        std::sort(logical_entries.begin(), logical_entries.end(), [](const auto &lhs, const auto &rhs)
+                  {
+                      if (std::abs(lhs.second.total_duration - rhs.second.total_duration) > 1e-9)
+                      {
+                          return lhs.second.total_duration > rhs.second.total_duration;
+                      }
+                      if (lhs.second.count != rhs.second.count)
+                      {
+                          return lhs.second.count > rhs.second.count;
+                      }
+                      return lhs.first < rhs.first;
+                  });
+        json logical_top = json::array();
+        size_t logical_limit = std::min<size_t>(10, logical_entries.size());
+        for (size_t i = 0; i < logical_limit; ++i)
+        {
+            json entry = json::object();
+            entry["gate"] = logical_entries[i].first;
+            entry["count"] = logical_entries[i].second.count;
+            entry["total_duration"] = logical_entries[i].second.total_duration;
+            logical_top.push_back(entry);
+        }
+        critical_summary["top_gates"] = logical_top;
         output["critical_path"] = critical_summary;
+        output["allow_parameterized_candidates"] = allow_parameterized_candidates;
+        output["logical_latency"] = logical_top;
 
         std::filesystem::path out_path(output_path);
         if (out_path.has_parent_path())

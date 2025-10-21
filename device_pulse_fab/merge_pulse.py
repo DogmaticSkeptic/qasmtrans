@@ -3,6 +3,7 @@ import argparse
 import copy
 import json
 import math
+import re
 import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -143,6 +144,333 @@ class ControlBasis:
     coupling_index: Dict[Tuple[int, int], int]
 
 
+@dataclass
+class MergeCandidate:
+    gate: str
+    qubits: Tuple[int, ...]
+    score: float
+    instance_id: Optional[int] = None
+
+
+@dataclass
+class OptimizationSettings:
+    compression_ratio: Optional[float]
+    compression_shift_ns: float
+    evo_time_ns: Optional[float]
+    amp_bound: Optional[float]
+    seed_from_library: bool
+    min_merged_fidelity: float
+    max_iter: int = 400
+    max_wall_time: int = 120
+
+
+@dataclass
+class OptimizationResult:
+    candidate: MergeCandidate
+    seq: List[PulseSpec]
+    unique_qubits: List[int]
+    logical_to_physical: Dict[int, int]
+    basis: ControlBasis
+    control_waveforms: Dict[str, np.ndarray]
+    evo_time: float
+    dt_effective: float
+    native_time: float
+    native_fidelity: float
+    optimized_fidelity: float
+    requested_ratio: float
+    actual_ratio: float
+    final_fid_err: float
+    n_ts: int
+    plot_path: Optional[Path]
+
+
+CONTROL_SINGLE_RE = re.compile(r"([IQ])(\d+)$")
+CONTROL_COUPLING_RE = re.compile(r"J(\d+)(\d+)$")
+
+
+def parse_control_label(label: str) -> Tuple[str, Tuple[int, ...]]:
+    match_single = CONTROL_SINGLE_RE.fullmatch(label)
+    if match_single:
+        axis = match_single.group(1)
+        qubit = int(match_single.group(2))
+        return axis, (qubit,)
+    match_coupling = CONTROL_COUPLING_RE.fullmatch(label)
+    if match_coupling:
+        q0 = int(match_coupling.group(1))
+        q1 = int(match_coupling.group(2))
+        return "J", (q0, q1)
+    raise ValueError(f"unrecognized control label: {label}")
+
+
+def collect_single_qubit_specs(pulse_lib: Sequence[dict], gate_names: Tuple[str, ...] = ("rx",)) -> Dict[Tuple[int, ...], PulseSpec]:
+    specs: Dict[Tuple[int, ...], PulseSpec] = {}
+    for entry in pulse_lib:
+        gate = str(entry.get("gate", "")).lower()
+        if gate not in gate_names:
+            continue
+        qubits_raw = entry.get("qubits") or []
+        if len(qubits_raw) != 1:
+            continue
+        if entry.get("virtual"):
+            continue
+        qubit = int(qubits_raw[0])
+        key = (qubit,)
+        if key in specs:
+            continue
+        theta = extract_theta(entry)
+        width = extract_width(entry)
+        specs[key] = PulseSpec(gate, theta, (qubit,), entry, width)
+    return specs
+
+
+def collect_two_qubit_specs(pulse_lib: Sequence[dict], gate_name: str = "iswap") -> Dict[Tuple[int, int], PulseSpec]:
+    specs: Dict[Tuple[int, int], PulseSpec] = {}
+    gate_name = gate_name.lower()
+    for entry in pulse_lib:
+        gate = str(entry.get("gate", "")).lower()
+        if gate != gate_name:
+            continue
+        qubits_raw = entry.get("qubits") or []
+        if len(qubits_raw) != 2:
+            continue
+        if entry.get("virtual"):
+            continue
+        physical = tuple(int(q) for q in qubits_raw)
+        key = tuple(sorted(physical))
+        if key in specs:
+            continue
+        theta = extract_theta(entry)
+        width = extract_width(entry)
+        specs[key] = PulseSpec(gate, theta, physical, entry, width)
+    return specs
+
+
+def extract_native_gates(device_doc: dict) -> set[str]:
+    gates: set[str] = set()
+    basis = device_doc.get("basis_gates") or []
+    for gate in basis:
+        if isinstance(gate, str):
+            gates.add(gate.lower())
+    metadata = device_doc.get("metadata")
+    if isinstance(metadata, dict):
+        meta_basis = metadata.get("basis_gates") or []
+        for gate in meta_basis:
+            if isinstance(gate, str):
+                gates.add(gate.lower())
+    return gates
+
+
+def aggregate_schedule_candidates(schedule: Sequence[dict]) -> Dict[Tuple[str, Tuple[int, ...]], float]:
+    totals: Dict[Tuple[str, Tuple[int, ...]], float] = {}
+    for event in schedule:
+        gate_raw = str(event.get("gate", "")).lower()
+        gate_norm, _ = normalize_gate_label(gate_raw)
+        qubits_raw = event.get("qubits") or []
+        if not qubits_raw:
+            continue
+        qubits = tuple(int(q) for q in qubits_raw)
+        if len(qubits) > 2:
+            continue
+        duration = float(event.get("duration", 0.0) or 0.0)
+        if duration <= 0.0:
+            continue
+        if len(qubits) == 2:
+            qubit_key = tuple(sorted(qubits))
+        else:
+            qubit_key = qubits
+        if gate_norm not in ("rx", "iswap"):
+            continue
+        totals[(gate_norm, qubit_key)] = totals.get((gate_norm, qubit_key), 0.0) + duration
+    return totals
+
+
+def extract_top_gate_entries(pulse_doc: dict) -> List[dict]:
+    top_list = pulse_doc.get("top_gates")
+    if not isinstance(top_list, list):
+        top_list = (pulse_doc.get("critical_path") or {}).get("top_gates")
+    if not isinstance(top_list, list):
+        return []
+    entries: List[dict] = []
+    for item in top_list:
+        if isinstance(item, dict) and item.get("gate"):
+            entries.append(item)
+    return entries
+
+
+def select_merge_candidates(
+    rx_specs: Dict[Tuple[int, ...], PulseSpec],
+    iswap_specs: Dict[Tuple[int, int], PulseSpec],
+    merge_limit: Optional[int],
+    native_gates: Optional[set[str]] = None,
+    schedule_totals: Optional[Dict[Tuple[str, Tuple[int, ...]], float]] = None,
+    instance_scores: Optional[List[Tuple[str, Tuple[int, ...], int, float]]] = None,
+    top_gate_entries: Optional[Sequence[dict]] = None,
+    logical_instances: Optional[Dict[int, dict]] = None,
+) -> List[MergeCandidate]:
+    candidates: List[MergeCandidate] = []
+    used_instances: set[int] = set()
+
+    if top_gate_entries and logical_instances:
+        gate_to_instances: Dict[str, List[Tuple[int, dict]]] = {}
+        for inst_id, info in logical_instances.items():
+            label = info.get("label")
+            if not label:
+                continue
+            if native_gates and label in native_gates:
+                continue
+            gate_to_instances.setdefault(label, []).append((inst_id, info))
+        for label, entries in gate_to_instances.items():
+            entries.sort(
+                key=lambda item: (
+                    -float(item[1].get("duration") or 0.0),
+                    float(item[1].get("first_index") or 0.0),
+                )
+            )
+        sorted_top = sorted(
+            (
+                entry
+                for entry in top_gate_entries
+                if isinstance(entry, dict) and entry.get("gate")
+            ),
+            key=lambda entry: float(entry.get("total_duration") or 0.0),
+            reverse=True,
+        )
+        for entry in sorted_top:
+            label = str(entry.get("gate", "")).lower()
+            if not label or (native_gates and label in native_gates):
+                continue
+            available = gate_to_instances.get(label)
+            if not available:
+                continue
+            count = int(entry.get("count") or 1)
+            added = 0
+            for inst_id, info in available:
+                if inst_id in used_instances:
+                    continue
+                qubit_order = info.get("ordered_qubits")
+                if not qubit_order:
+                    qubit_order = sorted(info.get("qubits") or [])
+                qubits_tuple = tuple(int(q) for q in qubit_order)
+                if not qubits_tuple:
+                    continue
+                score = float(entry.get("total_duration") or info.get("duration") or 0.0)
+                candidates.append(
+                    MergeCandidate(label, qubits_tuple, score, instance_id=inst_id)
+                )
+                used_instances.add(inst_id)
+                added += 1
+                if merge_limit and merge_limit > 0 and len(candidates) >= merge_limit:
+                    break
+                if added >= count:
+                    break
+            if merge_limit and merge_limit > 0 and len(candidates) >= merge_limit:
+                break
+
+    if merge_limit and merge_limit > 0 and len(candidates) >= merge_limit:
+        return candidates[: merge_limit]
+
+    fallback: List[MergeCandidate] = []
+    if instance_scores:
+        for gate, qubits, instance_id, score in instance_scores:
+            if native_gates and gate in native_gates:
+                continue
+            if instance_id in used_instances:
+                continue
+            fallback.append(MergeCandidate(gate, qubits, score, instance_id=instance_id))
+    elif schedule_totals:
+        for (gate, qubits), score in schedule_totals.items():
+            if native_gates and gate in native_gates:
+                continue
+            if gate == "rx" and qubits in rx_specs:
+                fallback.append(MergeCandidate("rx", qubits, score))
+            elif gate == "iswap":
+                key = tuple(sorted(qubits))
+                if key in iswap_specs:
+                    fallback.append(MergeCandidate("iswap", key, score))
+    else:
+        for qubits, spec in rx_specs.items():
+            fallback.append(MergeCandidate("rx", qubits, spec.width))
+        for qubits, spec in iswap_specs.items():
+            fallback.append(MergeCandidate("iswap", qubits, spec.width))
+
+    if not instance_scores:
+        fallback.sort(key=lambda c: c.score, reverse=True)
+    for cand in fallback:
+        candidates.append(cand)
+        if merge_limit and merge_limit > 0 and len(candidates) >= merge_limit:
+            break
+    return candidates
+
+
+def build_sequence_for_candidate(
+    candidate: MergeCandidate,
+    rx_specs: Dict[Tuple[int, ...], PulseSpec],
+    iswap_specs: Dict[Tuple[int, int], PulseSpec],
+    logical_instances: Optional[Dict[int, dict]] = None,
+    library_by_id: Optional[Dict[str, dict]] = None,
+) -> Optional[Tuple[List[PulseSpec], List[int], Dict[int, int]]]:
+    if candidate.instance_id is not None and logical_instances and library_by_id:
+        instance = logical_instances.get(candidate.instance_id)
+        result = build_sequence_from_instance(candidate, instance, library_by_id)
+        if result is not None:
+            return result
+    if candidate.gate == "cx":
+        if len(candidate.qubits) != 2:
+            return None
+        ctrl, target = candidate.qubits
+        pair = tuple(sorted(candidate.qubits))
+        spec_iswap = iswap_specs.get(pair)
+        spec_rx_ctrl = rx_specs.get((ctrl,))
+        spec_rx_target = rx_specs.get((target,))
+        if spec_iswap is None or spec_rx_ctrl is None or spec_rx_target is None:
+            return None
+        seq: List[PulseSpec] = []
+        unique_qubits = [ctrl, target]
+        logical_to_physical = {0: ctrl, 1: target}
+
+        local_map = {ctrl: 0, target: 1}
+
+        def localized_qubits(spec: PulseSpec) -> Tuple[int, ...]:
+            return tuple(local_map.get(q, 0) for q in spec.qubits)
+
+        seq.append(replace(spec_iswap, local_qubits=localized_qubits(spec_iswap)))
+        seq.append(replace(spec_rx_ctrl, theta=-0.5 * math.pi, local_qubits=localized_qubits(spec_rx_ctrl)))
+        seq.append(replace(spec_iswap, local_qubits=localized_qubits(spec_iswap)))
+        seq.append(replace(spec_rx_target, theta=-0.5 * math.pi, local_qubits=localized_qubits(spec_rx_target)))
+
+        return seq, unique_qubits, logical_to_physical
+
+    if candidate.gate == "rx":
+        spec = rx_specs.get(candidate.qubits)
+        if spec is None:
+            return None
+        physical_qubit = spec.qubits[0]
+        seq = [replace(spec, local_qubits=(0,))]
+        unique_qubits = [physical_qubit]
+        logical_to_physical = {0: physical_qubit}
+        return seq, unique_qubits, logical_to_physical
+
+    if candidate.gate == "iswap":
+        key = tuple(sorted(candidate.qubits))
+        spec = iswap_specs.get(key)
+        if spec is None:
+            return None
+        q0, q1 = spec.qubits
+        seq: List[PulseSpec] = []
+        spec_rx0 = rx_specs.get((q0,))
+        spec_rx1 = rx_specs.get((q1,))
+        if spec_rx0 is not None:
+            seq.append(replace(spec_rx0, local_qubits=(0,)))
+        seq.append(replace(spec, local_qubits=(0, 1)))
+        if spec_rx1 is not None:
+            seq.append(replace(spec_rx1, local_qubits=(1,)))
+        unique_qubits = [q0, q1]
+        logical_to_physical = {0: q0, 1: q1}
+        return seq, unique_qubits, logical_to_physical
+
+    return None
+
+
 def load_json(path: Path) -> dict:
     with path.open("r", encoding="utf-8") as h:
         return json.load(h)
@@ -157,6 +485,60 @@ def two_qubit_xy_unitary(theta: float) -> qt.Qobj:
     Y = qt.sigmay()
     H = -1j * theta / 2.0 * (qt.tensor(X, X) + qt.tensor(Y, Y))
     return H.expm()
+
+
+def build_sequence_from_instance(
+    candidate: MergeCandidate,
+    instance: Optional[dict],
+    library_by_id: Dict[str, dict],
+) -> Optional[Tuple[List[PulseSpec], List[int], Dict[int, int]]]:
+    if not instance:
+        return None
+    events: List[dict] = instance.get("events") or []
+    if not events:
+        return None
+    unique_qubits: List[int] = list(candidate.qubits)
+    phys_to_local: Dict[int, int] = {q: idx for idx, q in enumerate(unique_qubits)}
+    seq: List[PulseSpec] = []
+    for event in events:
+        qubits_raw = event.get("qubits") or []
+        if not qubits_raw:
+            continue
+        qubits = tuple(int(q) for q in qubits_raw)
+        for q in qubits:
+            if q not in phys_to_local:
+                phys_to_local[q] = len(unique_qubits)
+                unique_qubits.append(q)
+        local_qubits = tuple(phys_to_local[q] for q in qubits)
+        gate = str(event.get("gate", "")).lower()
+        duration = float(event.get("duration", 0.0) or 0.0)
+        params = event.get("parameters") or {}
+        theta = evaluate_expression(params.get("theta")) if params else None
+        if event.get("virtual"):
+            continue
+        pulse_id = event.get("pulse_id")
+        if not pulse_id:
+            continue
+        library_entry = library_by_id.get(pulse_id)
+        if library_entry is None:
+            continue
+        gate_from_library = str(library_entry.get("gate", "")).lower()
+        if gate_from_library not in ("rx", "iswap"):
+            continue
+        entry_copy = copy.deepcopy(library_entry)
+        entry_copy["qubits"] = list(qubits)
+        if duration > 0.0:
+            entry_copy["width"] = duration
+        if params:
+            entry_copy.setdefault("parameters", {}).update(params)
+        if theta is None:
+            theta = extract_theta(entry_copy)
+        width = float(entry_copy.get("width", duration))
+        seq.append(PulseSpec(gate, theta or 0.0, qubits, entry_copy, width, local_qubits=local_qubits))
+    if not seq:
+        return None
+    logical_to_physical = {idx: q for idx, q in enumerate(unique_qubits)}
+    return seq, unique_qubits, logical_to_physical
 
 
 def embed_single(U: qt.Qobj, target: int, nq: int) -> qt.Qobj:
@@ -581,73 +963,42 @@ def simulate_native_unitary(seq: List[PulseSpec], nq: int) -> qt.Qobj:
     return qt.Qobj(U_native, dims=[[2] * nq, [2] * nq])
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--pulse_library", type=Path, required=True)
-    parser.add_argument(
-        "--compression_ratio",
-        type=float,
-        default=None,
-        help="Fraction of the native gate duration to target (defaults to 0.5 if unspecified)",
-    )
-    parser.add_argument(
-        "--compression_shift_ns",
-        type=float,
-        default=0.0,
-        help="Additional time shift (ns) applied after scaling by the compression ratio",
-    )
-    parser.add_argument(
-        "--evo_time_ns",
-        type=float,
-        default=None,
-        help="Explicit merged gate duration in ns (overrides compression parameters)",
-    )
-    parser.add_argument("--coeffs", type=int, default=6)
-    parser.add_argument("--amp_bound", type=float, default=None, help="Optional absolute amplitude bound applied to all controls (auto if omitted)")
-    parser.add_argument("--seed_from_library", action="store_true")
-    parser.add_argument("--out_json", type=Path)
-    args = parser.parse_args()
-
-    pulse_doc = load_json(args.pulse_library)
-    pulse_lib = canonicalize_pulse_library(pulse_doc)
-    seq = pick_sequence_from_library(pulse_lib, max_qubits=2)
-    unique_qubits = []
-    for spec in seq:
-        for q in spec.qubits:
-            if q not in unique_qubits:
-                unique_qubits.append(q)
+def optimize_candidate_sequence(
+    candidate: MergeCandidate,
+    seq: List[PulseSpec],
+    unique_qubits: List[int],
+    logical_to_physical: Dict[int, int],
+    settings: OptimizationSettings,
+    plot_dir: Optional[Path] = None,
+) -> OptimizationResult:
+    unique_qubits = list(unique_qubits)
     nq = len(unique_qubits)
-    if nq != 2:
-        raise ValueError(f"expected two distinct qubits in sequence, found {nq}")
-    logical_to_physical = {idx: q for idx, q in enumerate(unique_qubits)}
+    if nq == 0 or nq > 2:
+        raise ValueError(f"unsupported number of qubits ({nq}) in sequence for candidate {candidate}")
+
     U_targ = ideal_from_sequence(seq, nq)
     U_native = simulate_native_unitary(seq, nq)
     native_fidelity = unitary_fidelity(U_targ, U_native)
-    print(f"Native sequence fidelity: {native_fidelity:.6f}")
-    if native_fidelity < 0.995:
-        raise ValueError(
-            f"Native pulse sequence fidelity below threshold: {native_fidelity:.6f}"
-        )
 
     total_width = float(sum(spec.width for spec in seq))
     dt_library = infer_dt_from_library(seq)
     native_time = max(total_width, dt_library)
 
-    if args.evo_time_ns is not None and args.evo_time_ns > 0.0:
-        requested_time = float(args.evo_time_ns) * 1e-9
+    if settings.evo_time_ns is not None and settings.evo_time_ns > 0.0:
+        requested_time = float(settings.evo_time_ns) * 1e-9
     else:
-        ratio = 0.5 if args.compression_ratio is None else float(args.compression_ratio)
+        ratio = 0.5 if settings.compression_ratio is None else float(settings.compression_ratio)
         if ratio <= 0.0:
             raise ValueError("compression_ratio must be positive")
         requested_time = ratio * native_time
-        requested_time += float(args.compression_shift_ns) * 1e-9
+        requested_time += float(settings.compression_shift_ns) * 1e-9
 
     requested_time = max(dt_library, requested_time)
     n_ts = max(1, int(math.ceil(requested_time / dt_library)))
     evo_time = n_ts * dt_library
     dt_effective = dt_library
-    requested_ratio = requested_time / native_time
-    actual_ratio = evo_time / native_time
+    requested_ratio = requested_time / native_time if native_time > 0.0 else 1.0
+    actual_ratio = evo_time / native_time if native_time > 0.0 else 1.0
 
     dims = [[2] * nq, [2] * nq]
     H_d = qt.Qobj(np.zeros((2 ** nq, 2 ** nq), dtype=complex), dims=dims)
@@ -655,12 +1006,12 @@ def main():
     n_ctrls = len(basis.ctrls)
 
     library_guess = make_library_guess(seq, basis, n_ts, evo_time)
-    guess = library_guess.copy() if args.seed_from_library else None
+    guess = library_guess.copy() if settings.seed_from_library else None
 
     default_amp = 5.0
     amp_lbounds: List[float] = []
     amp_ubounds: List[float] = []
-    user_amp = None if args.amp_bound is None else abs(args.amp_bound)
+    user_amp = None if settings.amp_bound is None else abs(settings.amp_bound)
     guess_peak = (
         np.max(np.abs(library_guess), axis=0) if library_guess.size else np.zeros(n_ctrls)
     )
@@ -686,14 +1037,6 @@ def main():
         upper_arr = np.asarray(amp_ubounds_scaled)[np.newaxis, :]
         guess = np.clip(guess / ctrl_scale[np.newaxis, :], lower_arr, upper_arr)
 
-    print(
-        "Optimizing merged pulse: "
-        f"native_time={native_time * 1e9:.3f} ns, "
-        f"requested_time={requested_time * 1e9:.3f} ns (ratio={requested_ratio:.3f}), "
-        f"actual_time={evo_time * 1e9:.3f} ns (ratio={actual_ratio:.3f}), "
-        f"dt={dt_library * 1e9:.3f} ns, n_ts={n_ts}"
-    )
-
     p_type = "LIN"
     optim = pulseoptim.create_pulse_optimizer(
         H_d,
@@ -706,8 +1049,8 @@ def main():
         amp_ubound=amp_ubounds_scaled,
         fid_err_targ=1e-4,
         min_grad=1e-20,
-        max_iter=400,
-        max_wall_time=120,
+        max_iter=settings.max_iter,
+        max_wall_time=settings.max_wall_time,
         alg="GRAPE",
         optim_method="FMIN_L_BFGS_B",
         method_params={"max_metric_corr": 20, "accuracy_factor": 1e8},
@@ -741,10 +1084,10 @@ def main():
             p_gen.ubound = amp_ubounds_scaled[j]
             init_amps[:, j] = p_gen.gen_pulse()
 
-    guess_snapshot = None
-    if guess is not None:
-        guess = np.asarray(guess, dtype=float)
-        guess_snapshot = guess.copy()
+    if guess is not None and guess.size:
+        lower_arr = np.asarray(amp_lbounds_scaled)[np.newaxis, :]
+        upper_arr = np.asarray(amp_ubounds_scaled)[np.newaxis, :]
+        guess = np.clip(guess, lower_arr, upper_arr)
         init_amps = 0.5 * init_amps + 0.5 * guess
 
     lower_bounds = np.repeat(np.asarray(amp_lbounds_scaled)[np.newaxis, :], n_ts, axis=0)
@@ -755,92 +1098,706 @@ def main():
 
     res = optim.run_optimization()
     optimized_fidelity = max(0.0, 1.0 - float(np.real(res.fid_err)))
-    print(f"Optimized pulse fidelity: {optimized_fidelity:.6f}")
 
     final_amps = np.array(res.final_amps)
     final_amps_physical = final_amps * ctrl_scale[np.newaxis, :]
     final_amps_real = np.real(final_amps_physical)
-    final_amps_imag = np.imag(final_amps_physical)
-    U_mat = U_targ.full()
-    U_real = np.real(U_mat)
-    U_imag = np.imag(U_mat)
 
-    plot_path = None
-    try:
-        library_stem = args.pulse_library.stem if args.pulse_library else "pulse"
-        plot_filename = f"{library_stem}_merged_pulse.png"
-        plot_path_candidate = Path(__file__).resolve().parent / plot_filename
-        plot_saved = save_pulse_plot(
-            plot_path_candidate,
-            final_amps_real,
-            basis.labels,
-            dt_effective,
-        )
-        if plot_saved is not None:
-            plot_path = plot_saved
-    except Exception as exc:
-        print(f"Warning: failed to save pulse plot ({exc})", file=sys.stderr)
+    control_waveforms: Dict[str, np.ndarray] = {}
+    for idx, label in enumerate(basis.labels):
+        control_waveforms[label] = final_amps_real[:, idx].copy()
 
-    out = {
-        "sequence": [
-            {
-                "gate": spec.gate,
-                "theta": float(spec.theta),
-                "qubits": list(spec.qubits),
-                "local_qubits": list(local_qubits(spec)),
-            }
-            for spec in seq
-        ],
-        "physical_qubits": unique_qubits,
-        "logical_to_physical": {int(k): int(v) for k, v in logical_to_physical.items()},
-        "target_unitary": {
-            "real": U_real.tolist(),
-            "imag": U_imag.tolist(),
-        },
-        "evo_time_s": float(evo_time),
-        "dt_library_s": float(dt_library),
-        "dt_effective_s": float(dt_effective),
-        "total_library_time_s": float(total_width),
-        "num_tslots": int(n_ts),
-        "final_fid_err": float(np.real(res.fid_err)),
-        "final_amps": {
-            "real": final_amps_real.tolist(),
-            "imag": final_amps_imag.tolist(),
-        },
-        "ctrls_order": basis.labels,
-        "control_scaling": ctrl_scale.tolist(),
-        "native_fidelity": float(native_fidelity),
-        "optimized_fidelity": float(optimized_fidelity),
-        "amp_lbounds": amp_lbounds,
-        "amp_ubounds": amp_ubounds,
-        "native_total_time_s": float(native_time),
-        "requested_evo_time_s": float(requested_time),
-        "compression_ratio_requested": float(requested_ratio),
-        "compression_ratio_actual": float(actual_ratio),
-    }
-    if plot_path is not None:
-        out["pulse_plot"] = str(plot_path)
-    if guess_snapshot is not None:
-        guess_phys = guess_snapshot * ctrl_scale[np.newaxis, :]
-        guess_real = np.real(guess_phys)
-        guess_imag = np.imag(guess_phys)
-        out["initial_guess"] = {
-            "real": guess_real.tolist(),
-            "imag": guess_imag.tolist(),
+    plot_path: Optional[Path] = None
+    if plot_dir is not None:
+        try:
+            plot_dir = Path(plot_dir)
+            plot_dir.mkdir(parents=True, exist_ok=True)
+            qubit_suffix = "_".join(str(q) for q in unique_qubits)
+            plot_filename = f"{candidate.gate}_{qubit_suffix}_merged_pulse.png"
+            plot_candidate = plot_dir / plot_filename
+            saved = save_pulse_plot(
+                plot_candidate,
+                final_amps_real,
+                basis.labels,
+                dt_effective,
+            )
+            if saved is not None:
+                plot_path = saved
+        except Exception as exc:
+            print(f"Warning: failed to save pulse plot for {candidate} ({exc})", file=sys.stderr)
+
+    return OptimizationResult(
+        candidate=candidate,
+        seq=seq,
+        unique_qubits=unique_qubits,
+        logical_to_physical=logical_to_physical,
+        basis=basis,
+        control_waveforms=control_waveforms,
+        evo_time=float(evo_time),
+        dt_effective=float(dt_effective),
+        native_time=float(native_time),
+        native_fidelity=float(native_fidelity),
+        optimized_fidelity=float(optimized_fidelity),
+        requested_ratio=float(requested_ratio),
+        actual_ratio=float(actual_ratio),
+        final_fid_err=float(np.real(res.fid_err)),
+        n_ts=int(n_ts),
+        plot_path=plot_path,
+    )
+
+
+def gate_sequence_descriptor(seq: Sequence[PulseSpec]) -> List[str]:
+    descriptor: List[str] = []
+    for spec in seq:
+        gate = spec.gate
+        if not descriptor or descriptor[-1] != gate:
+            descriptor.append(gate)
+    return descriptor
+
+
+def make_gate_label(result: OptimizationResult) -> str:
+    raw_name = result.candidate.gate.lower()
+    gate_part = re.sub(r"[^a-z0-9]+", "_", raw_name).strip("_")
+    if not gate_part:
+        gate_part = "gate"
+    return f"merged_{gate_part}"
+
+
+def ensure_pulse_list(pulse_doc: dict) -> Tuple[List[dict], str]:
+    for key in ("pulse_definitions", "pulse_library"):
+        value = pulse_doc.get(key)
+        if isinstance(value, list):
+            return value, key
+    pulse_doc["pulse_definitions"] = []
+    return pulse_doc["pulse_definitions"], "pulse_definitions"
+
+
+def extract_physical_qubits_from_device(device_doc: dict) -> List[int]:
+    qubits: set[int] = set()
+    physical = device_doc.get("physical_qubits")
+    if isinstance(physical, Sequence):
+        for q in physical:
+            try:
+                qubits.add(int(q))
+            except Exception:
+                continue
+    metadata = device_doc.get("metadata")
+    if isinstance(metadata, dict):
+        meta_phys = metadata.get("physical_qubits")
+        if isinstance(meta_phys, Sequence):
+            for q in meta_phys:
+                try:
+                    qubits.add(int(q))
+                except Exception:
+                    continue
+    return sorted(qubits)
+
+
+def extract_coupling_pairs_from_device(device_doc: dict) -> List[Tuple[int, int]]:
+    pairs: set[Tuple[int, int]] = set()
+
+    def ingest(source) -> None:
+        if isinstance(source, Sequence):
+            for item in source:
+                if isinstance(item, Sequence) and len(item) == 2:
+                    try:
+                        q0 = int(item[0])
+                        q1 = int(item[1])
+                    except Exception:
+                        continue
+                    ordered = tuple(sorted((q0, q1)))
+                    if ordered[0] != ordered[1]:
+                        pairs.add(ordered)
+
+    ingest(device_doc.get("cx_coupling"))
+    ingest(device_doc.get("coupling_map"))
+    metadata = device_doc.get("metadata")
+    if isinstance(metadata, dict):
+        ingest(metadata.get("cx_coupling"))
+        ingest(metadata.get("coupling_map"))
+    return sorted(pairs)
+
+
+def extract_candidate_theta(candidate: MergeCandidate, seq: Sequence[PulseSpec]) -> Optional[float]:
+    for spec in seq:
+        if spec.gate == candidate.gate:
+            return float(spec.theta)
+    return None
+
+
+def synthesize_pulse_entries(result: OptimizationResult, gate_label: str) -> List[dict]:
+    width = float(result.evo_time)
+    dt = float(result.dt_effective)
+    sequence_descriptor = gate_sequence_descriptor(result.seq)
+    theta_value = extract_candidate_theta(result.candidate, result.seq)
+
+    drive_waveforms: Dict[int, Dict[str, np.ndarray]] = {}
+    coupling_waveforms: Dict[Tuple[int, int], np.ndarray] = {}
+    for label, waveform in result.control_waveforms.items():
+        axis, qubits = parse_control_label(label)
+        if axis in ("I", "Q") and len(qubits) == 1:
+            q = qubits[0]
+            drive_data = drive_waveforms.setdefault(q, {})
+            drive_data[axis] = waveform
+        elif axis == "J" and len(qubits) == 2:
+            pair = tuple(sorted(qubits))
+            coupling_waveforms[pair] = waveform
+
+    entries: List[dict] = []
+    for qubit in sorted(drive_waveforms):
+        axes = drive_waveforms[qubit]
+        samples_i = axes.get("I")
+        samples_q = axes.get("Q")
+        n_samples = 0
+        if samples_i is not None:
+            n_samples = samples_i.size
+        elif samples_q is not None:
+            n_samples = samples_q.size
+        if n_samples == 0:
+            continue
+        if samples_i is None:
+            samples_i = np.zeros(n_samples, dtype=float)
+        if samples_q is None:
+            samples_q = np.zeros(n_samples, dtype=float)
+        samples_i_list = [float(v) for v in samples_i.tolist()]
+        samples_q_list = [float(v) for v in samples_q.tolist()]
+        params = {
+            "sequence": sequence_descriptor,
         }
+        if theta_value is not None:
+            params["theta_rad"] = theta_value
+        entry = {
+            "id": f"{gate_label}_drive_q{qubit}",
+            "gate": gate_label,
+            "qubits": [int(qubit)],
+            "waveform_type": "arbitrary",
+            "width": width,
+            "parameters": params,
+            "samples_i": samples_i_list,
+            "samples_q": samples_q_list,
+            "amplitude": float(max(np.max(np.abs(samples_i)), np.max(np.abs(samples_q)))),
+        }
+        entries.append(entry)
 
-    if args.out_json:
-        args.out_json.parent.mkdir(parents=True, exist_ok=True)
-        with args.out_json.open("w", encoding="utf-8") as h:
-            json.dump(out, h, indent=2)
+    for pair in sorted(coupling_waveforms):
+        samples = coupling_waveforms[pair]
+        if samples.size == 0:
+            continue
+        n_samples = int(samples.size)
+        samples_i_list = [float(v) for v in samples.tolist()]
+        samples_q_list = [0.0 for _ in range(n_samples)]
+        params = {
+            "sequence": sequence_descriptor,
+        }
+        if theta_value is not None:
+            params["theta_rad"] = theta_value
+        q0, q1 = pair
+        base_entry = {
+            "id": f"{gate_label}_coupling_q{q0}_q{q1}",
+            "gate": gate_label,
+            "qubits": [int(q0), int(q1)],
+            "waveform_type": "arbitrary",
+            "width": width,
+            "parameters": params,
+            "samples_i": samples_i_list,
+            "samples_q": samples_q_list,
+            "amplitude": float(np.max(np.abs(samples))),
+        }
+        entries.append(base_entry)
+        if q0 != q1:
+            reversed_entry = dict(base_entry)
+            reversed_entry["id"] = f"{gate_label}_coupling_q{q1}_q{q0}"
+            reversed_entry["qubits"] = [int(q1), int(q0)]
+            entries.append(reversed_entry)
+
+    return entries
+
+
+def append_pulse_entries(pulse_doc: dict, entries: Sequence[dict]) -> None:
+    library, key = ensure_pulse_list(pulse_doc)
+    new_ids = {entry.get("id") for entry in entries if "id" in entry}
+    if new_ids:
+        library[:] = [entry for entry in library if entry.get("id") not in new_ids]
+    library.extend(entries)
+    if key == "pulse_library":
+        pulse_doc["pulse_library"] = library
     else:
-        print(f"Native fidelity: {native_fidelity:.6f}")
-        print(f"Optimized fidelity: {optimized_fidelity:.6f}")
-        print(f"Final fidelity error: {float(np.real(res.fid_err)):.6e}")
-        print(f"Compression ratio (requested/actual): {requested_ratio:.3f}/{actual_ratio:.3f}")
-        if plot_path is not None:
-            print(f"Pulse plot saved to: {plot_path}")
+        pulse_doc["pulse_definitions"] = library
+
+
+def replicate_gate_entries(
+    pulse_doc: dict,
+    gate_label: str,
+    target_single_qubits: Sequence[int],
+    target_pairs: Sequence[Tuple[int, int]],
+) -> None:
+    library, key = ensure_pulse_list(pulse_doc)
+    existing = [entry for entry in library if entry.get("gate") == gate_label]
+    base_drive = next((entry for entry in existing if len(entry.get("qubits", [])) == 1), None)
+    base_coupling = next((entry for entry in existing if len(entry.get("qubits", [])) == 2), None)
+
+    if base_drive and target_single_qubits:
+        for q in target_single_qubits:
+            qubits = [int(q)]
+            if any(entry.get("gate") == gate_label and entry.get("qubits") == qubits for entry in library):
+                continue
+            new_entry = copy.deepcopy(base_drive)
+            new_entry["id"] = f"{gate_label}_drive_q{q}"
+            new_entry["qubits"] = qubits
+            library.append(new_entry)
+
+    if base_coupling and target_pairs:
+        for pair in target_pairs:
+            q0, q1 = pair
+            for ordered in ((q0, q1), (q1, q0)):
+                qubits = [int(ordered[0]), int(ordered[1])]
+                if any(entry.get("gate") == gate_label and entry.get("qubits") == qubits for entry in library):
+                    continue
+                new_entry = copy.deepcopy(base_coupling)
+                new_entry["id"] = f"{gate_label}_coupling_q{ordered[0]}_q{ordered[1]}"
+                new_entry["qubits"] = qubits
+                library.append(new_entry)
+
+    if key == "pulse_library":
+        pulse_doc["pulse_library"] = library
+    else:
+        pulse_doc["pulse_definitions"] = library
+
+
+def update_device_config(
+    device_doc: dict,
+    gate_label: str,
+    duration_s: float,
+    error_rate: float,
+    logical_gate: Optional[str] = None,
+    qubits: Optional[Sequence[int]] = None,
+) -> None:
+    duration_s = float(duration_s)
+    error_rate = float(max(0.0, error_rate))
+
+    def ensure_mapping(doc: dict, key: str) -> Dict[str, float]:
+        mapping = doc.get(key)
+        if not isinstance(mapping, dict):
+            mapping = {}
+            doc[key] = mapping
+        return mapping
+
+    def ensure_list(doc: dict, key: str) -> List[str]:
+        value = doc.get(key)
+        if not isinstance(value, list):
+            value = []
+            doc[key] = value
+        return value
+
+    gate_lens = ensure_mapping(device_doc, "gate_lens")
+    gate_lens[gate_label] = duration_s
+    gate_errs = ensure_mapping(device_doc, "gate_errs")
+    gate_errs[gate_label] = error_rate
+    basis_gates = ensure_list(device_doc, "basis_gates")
+    if gate_label not in basis_gates:
+        basis_gates.append(gate_label)
+
+    metadata = device_doc.get("metadata")
+    if isinstance(metadata, dict):
+        meta_basis = metadata.get("basis_gates")
+        if isinstance(meta_basis, list) and gate_label not in meta_basis:
+            meta_basis.append(gate_label)
+        meta_gate_lens = metadata.get("gate_lens")
+        if isinstance(meta_gate_lens, dict):
+            meta_gate_lens[gate_label] = duration_s
+        meta_gate_errs = metadata.get("gate_errs")
+        if isinstance(meta_gate_errs, dict):
+            meta_gate_errs[gate_label] = error_rate
+
+    if logical_gate:
+        logical_gate_l = str(logical_gate).strip().lower()
+        if logical_gate_l:
+            alias_entry = {
+                "logical_gate": logical_gate_l,
+            }
+            alias_map = ensure_mapping(device_doc, "merged_gate_aliases")
+            alias_map[gate_label] = alias_entry
+            metadata = device_doc.get("metadata")
+            if isinstance(metadata, dict):
+                meta_alias = metadata.get("merged_gate_aliases")
+                if not isinstance(meta_alias, dict):
+                    meta_alias = {}
+                    metadata["merged_gate_aliases"] = meta_alias
+                meta_alias[gate_label] = dict(alias_entry)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Optimize merged pulses and augment pulse/device configuration files.",
+    )
+    parser.add_argument(
+        "--pulse-dump",
+        type=Path,
+        required=True,
+        help="Pulse JSON emitted by qasmtrans containing the schedule, pulse library, and critical path metadata.",
+    )
+    parser.add_argument(
+        "--pulse-template",
+        type=Path,
+        required=True,
+        help="Base pulse template JSON to clone and augment with merged definitions.",
+    )
+    parser.add_argument(
+        "--device-config",
+        type=Path,
+        required=True,
+        help="Base device configuration JSON to clone and augment with merged gate timing/error data.",
+    )
+    parser.add_argument(
+        "--output-pulses",
+        type=Path,
+        required=True,
+        help="Destination path for the augmented pulse template JSON.",
+    )
+    parser.add_argument(
+        "--output-device",
+        type=Path,
+        required=True,
+        help="Destination path for the augmented device configuration JSON.",
+    )
+    parser.add_argument(
+        "--merge-limit",
+        type=int,
+        default=0,
+        help="Maximum number of merge candidates to optimize (0 means no limit).",
+    )
+    parser.add_argument(
+        "--compression-ratio",
+        type=float,
+        default=0.5,
+        help="Fraction of the native gate duration to target (default 0.5).",
+    )
+    parser.add_argument(
+        "--compression-shift-ns",
+        type=float,
+        default=0.0,
+        help="Additional time shift (ns) applied after scaling by the compression ratio.",
+    )
+    parser.add_argument(
+        "--evo-time-ns",
+        type=float,
+        default=None,
+        help="Explicit merged gate duration in ns (overrides compression parameters).",
+    )
+    parser.add_argument(
+        "--amp-bound",
+        type=float,
+        default=None,
+        help="Optional absolute amplitude bound applied to all controls (auto if omitted).",
+    )
+    parser.add_argument(
+        "--seed-from-library",
+        action="store_true",
+        help="Initialise the optimisation with the stitched library waveform instead of the default guess.",
+    )
+    parser.add_argument(
+        "--min-merged-fidelity",
+        type=float,
+        default=0.95,
+        help="Skip merged gates whose optimised fidelity falls below this value.",
+    )
+    parser.add_argument(
+        "--plot-dir",
+        type=Path,
+        default=None,
+        help="If provided, save control amplitude plots for each merged gate in this directory.",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print per-candidate optimisation progress.",
+    )
+    args = parser.parse_args()
+
+    pulse_dump_doc = load_json(args.pulse_dump)
+    pulse_lib = canonicalize_pulse_library(pulse_dump_doc)
+    library_by_id: Dict[str, dict] = {}
+    for entry in pulse_lib:
+        pulse_id = entry.get("id")
+        if isinstance(pulse_id, str) and pulse_id:
+            library_by_id[pulse_id] = entry
+    schedule = pulse_dump_doc.get("schedule") or []
+    device_template_doc = load_json(args.device_config)
+    native_gates = extract_native_gates(device_template_doc)
+    critical_indices = {
+        int(idx) for idx in (pulse_dump_doc.get("critical_path") or {}).get("path_indices", [])
+    }
+    if critical_indices:
+        schedule_path = [
+            event for event in schedule if int(event.get("index", -1)) in critical_indices
+        ]
+    else:
+        schedule_path = schedule
+
+    allow_parameterized = pulse_dump_doc.get("allow_parameterized_candidates")
+    if allow_parameterized is None:
+        allow_parameterized = (
+            (pulse_dump_doc.get("critical_path") or {}).get("allow_parameterized_candidates", True)
+        )
+    allow_parameterized = bool(allow_parameterized)
+
+    def label_has_parameters(label: str) -> bool:
+        if allow_parameterized:
+            return False
+        if not label:
+            return False
+        if "[" not in label:
+            return False
+        open_bracket = label.find("[")
+        close_bracket = label.find("]", open_bracket + 1)
+        if close_bracket == -1:
+            return False
+        return "=" in label[open_bracket:close_bracket]
+
+    logical_instances: Dict[int, dict] = {}
+    for event in schedule:
+        logical_id = event.get("logical_gate_id")
+        if logical_id is None:
+            continue
+        try:
+            logical_id_int = int(logical_id)
+        except (TypeError, ValueError):
+            continue
+        raw_label = str(event.get("logical_label", ""))
+        if not raw_label or label_has_parameters(raw_label):
+            continue
+        label_lower = raw_label.lower()
+        info = logical_instances.setdefault(
+            logical_id_int,
+            {
+                "label": label_lower,
+                "events": [],
+                "qubits": set(),
+                "ordered_qubits": [],
+                "duration": 0.0,
+                "first_index": None,
+            },
+        )
+        qubits_list = [int(q) for q in (event.get("qubits") or [])]
+        if not qubits_list:
+            continue
+        info["events"].append(event)
+        for q in qubits_list:
+            info["qubits"].add(int(q))
+        if not info["ordered_qubits"] or len(qubits_list) > len(info["ordered_qubits"]):
+            info["ordered_qubits"] = list(qubits_list)
+        info["duration"] += float(event.get("duration", 0.0) or 0.0)
+        if info["first_index"] is None:
+            try:
+                info["first_index"] = int(event.get("index"))
+            except Exception:
+                info["first_index"] = len(logical_instances)
+
+    gate_target_qubits: Dict[str, set[Tuple[int, ...]]] = {}
+    instance_scores: List[Tuple[str, Tuple[int, ...], int, float]] = []
+    for logical_id, info in logical_instances.items():
+        if not info["events"]:
+            continue
+        label = info["label"]
+        if not label:
+            continue
+        if label_has_parameters(label):
+            continue
+        qubits_tuple = tuple(sorted(info["qubits"]))
+        order = info.get("first_index")
+        if order is None:
+            order = 0.0
+        instance_scores.append((label, qubits_tuple, logical_id, float(order)))
+        gate_target_qubits.setdefault(label, set()).add(qubits_tuple)
+    instance_scores.sort(key=lambda item: item[3])
+
+    schedule_totals = aggregate_schedule_candidates(schedule_path)
+
+    rx_specs = collect_single_qubit_specs(pulse_lib)
+    iswap_specs = collect_two_qubit_specs(pulse_lib)
+    top_gate_entries = extract_top_gate_entries(pulse_dump_doc)
+    schedule_single_qubits = sorted(
+        {
+            int(tpl[0])
+            for tuples in gate_target_qubits.values()
+            for tpl in tuples
+            if len(tpl) == 1
+        }
+    )
+    schedule_pair_qubits = sorted(
+        {
+            tuple(sorted((int(tpl[0]), int(tpl[1]))))
+            for tuples in gate_target_qubits.values()
+            for tpl in tuples
+            if len(tpl) == 2
+        }
+    )
+    candidates = select_merge_candidates(
+        rx_specs,
+        iswap_specs,
+        args.merge_limit,
+        native_gates=native_gates,
+        schedule_totals=schedule_totals,
+        instance_scores=instance_scores,
+        top_gate_entries=top_gate_entries,
+        logical_instances=logical_instances,
+    )
+    if not candidates:
+        print("No merge candidates matched the supplied pulse dump.", file=sys.stderr)
+        return 1
+
+    settings = OptimizationSettings(
+        compression_ratio=args.compression_ratio,
+        compression_shift_ns=args.compression_shift_ns,
+        evo_time_ns=args.evo_time_ns,
+        amp_bound=args.amp_bound,
+        seed_from_library=args.seed_from_library,
+        min_merged_fidelity=args.min_merged_fidelity,
+    )
+
+    results: List[OptimizationResult] = []
+    for candidate in candidates:
+        seq_info = build_sequence_for_candidate(
+            candidate,
+            rx_specs,
+            iswap_specs,
+            logical_instances=logical_instances,
+            library_by_id=library_by_id,
+        )
+        if seq_info is None:
+            if args.verbose:
+                print(f"Skipping {candidate}: missing supporting pulses")
+            continue
+        seq, unique_qubits, logical_to_physical = seq_info
+        try:
+            if args.verbose:
+                qubit_str = ", ".join(str(q) for q in unique_qubits)
+                print(
+                    f"Optimizing {candidate.gate} on qubits [{qubit_str}] "
+                    f"(score={candidate.score:.6g})"
+                )
+            result = optimize_candidate_sequence(
+                candidate,
+                seq,
+                unique_qubits,
+                logical_to_physical,
+                settings,
+                args.plot_dir,
+            )
+            if result.optimized_fidelity < settings.min_merged_fidelity:
+                if args.verbose:
+                    print(
+                        f"  merged fidelity {result.optimized_fidelity:.6f} "
+                        f"below threshold {settings.min_merged_fidelity:.6f}; skipping"
+                    )
+                continue
+            results.append(result)
+            if args.verbose:
+                print(
+                    f"  fidelity {result.optimized_fidelity:.6f}, "
+                    f"duration {result.evo_time * 1e9:.3f} ns "
+                    f"(native {result.native_time * 1e9:.3f} ns)"
+                )
+        except Exception as exc:
+            print(f"Failed to optimise candidate {candidate}: {exc}", file=sys.stderr)
+
+    if not results:
+        print("No merged pulses were successfully produced.", file=sys.stderr)
+        return 1
+
+    pulse_template_doc = load_json(args.pulse_template)
+    pulse_output_doc = copy.deepcopy(pulse_template_doc)
+    device_output_doc = copy.deepcopy(device_template_doc)
+
+    device_single_targets = extract_physical_qubits_from_device(device_template_doc)
+    device_pair_targets = extract_coupling_pairs_from_device(device_template_doc)
+
+    num_qubits = int(
+        device_template_doc.get("num_qubits")
+        or device_template_doc.get("metadata", {}).get("num_qubits")
+        or 0
+    )
+
+    summary_rows: List[Tuple[str, List[int], float, float, float, int]] = []
+    for result in results:
+        gate_label = make_gate_label(result)
+        entries = synthesize_pulse_entries(result, gate_label)
+        append_pulse_entries(pulse_output_doc, entries)
+        gate_key = result.candidate.gate
+        target_single_qubits = list(device_single_targets)
+        if not target_single_qubits:
+            if num_qubits > 0:
+                target_single_qubits = list(range(num_qubits))
+            else:
+                target_single_qubits = list(schedule_single_qubits)
+        if not target_single_qubits:
+            target_single_qubits = sorted({spec.qubits[0] for spec in rx_specs.values()})
+
+        target_pairs = list(device_pair_targets)
+        if not target_pairs:
+            if num_qubits > 0:
+                target_pairs = [(i, j) for i in range(num_qubits) for j in range(i + 1, num_qubits)]
+            else:
+                target_pairs = list(schedule_pair_qubits)
+        if not target_pairs:
+            target_pairs = sorted(iswap_specs.keys())
+        if not target_pairs:
+            target_pairs = sorted(
+                {tuple(sorted(tpl)) for tpl in gate_target_qubits.get(gate_key, set()) if len(tpl) == 2}
+            )
+        replicate_gate_entries(
+            pulse_output_doc,
+            gate_label,
+            target_single_qubits,
+            target_pairs if len(result.unique_qubits) > 1 else [],
+        )
+        error_rate = 1.0 - result.optimized_fidelity
+        update_device_config(
+            device_output_doc,
+            gate_label,
+            result.evo_time,
+            error_rate,
+            logical_gate=result.candidate.gate,
+            qubits=result.unique_qubits,
+        )
+        summary_rows.append(
+            (
+                gate_label,
+                result.unique_qubits,
+                result.native_time,
+                result.evo_time,
+                result.optimized_fidelity,
+                len(entries),
+            )
+        )
+
+    args.output_pulses.parent.mkdir(parents=True, exist_ok=True)
+    with args.output_pulses.open("w", encoding="utf-8") as handle:
+        json.dump(pulse_output_doc, handle, indent=2)
+
+    args.output_device.parent.mkdir(parents=True, exist_ok=True)
+    with args.output_device.open("w", encoding="utf-8") as handle:
+        json.dump(device_output_doc, handle, indent=2)
+
+    print(f"Augmented pulse template written to {args.output_pulses}")
+    print(f"Augmented device config written to {args.output_device}")
+    print("Merged gates:")
+    for gate_label, qubits, native_time, merged_time, fidelity, entry_count in summary_rows:
+        qubit_text = ", ".join(str(q) for q in qubits)
+        native_ns = native_time * 1e9
+        merged_ns = merged_time * 1e9
+        delta_ns = merged_ns - native_ns
+        delta_pct = 0.0
+        if native_ns > 1e-12:
+            delta_pct = (delta_ns / native_ns) * 100.0
+        print(
+            f"  {gate_label}: qubits [{qubit_text}], "
+            f"duration {merged_ns:.3f} ns (native {native_ns:.3f} ns, "
+            f"delta {delta_ns:+.3f} ns, {delta_pct:+.1f}%), "
+            f"fidelity {fidelity:.6f}, entries {entry_count}"
+        )
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

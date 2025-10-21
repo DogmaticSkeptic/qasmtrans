@@ -1,5 +1,5 @@
 {
-  "name": "rigetti_ankaa9q3_calibrated",
+  "name": "rigetti_ankaa9q_calibrated",
   "version": "2024-09-23T16:21:57.870455",
   "num_qubits": 9,
   "basis_gates": [
@@ -425,12 +425,13 @@
         0.0
       ],
       "parameters": {
-        "theta": 3.0250101137104846,
-        "nominal_theta_rad": 3.141592653589793,
+        "theta": 3.141592653589793
+      },
+      "calibration": {
+        "theta_actual_rad": 3.0250101137104846,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": 122198626.22079794,
-        "area_omega_rad": 3.0250101137104846,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9983015684729791
       },
@@ -853,12 +854,13 @@
         0.0
       ],
       "parameters": {
-        "theta": -3.0250101137104846,
-        "nominal_theta_rad": -3.141592653589793,
+        "theta": -3.141592653589793
+      },
+      "calibration": {
+        "theta_actual_rad": -3.0250101137104846,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": -122198626.22079794,
-        "area_omega_rad": -3.0250101137104846,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9983015684729791
       },
@@ -1281,12 +1283,13 @@
         0.0
       ],
       "parameters": {
-        "theta": 1.4542137869155878,
-        "nominal_theta_rad": 1.5707963267948966,
+        "theta": 1.5707963267948966
+      },
+      "calibration": {
+        "theta_actual_rad": 1.4542137869155878,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": 58744572.84853774,
-        "area_omega_rad": 1.4542137869155878,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9983015940899058
       },
@@ -1709,12 +1712,13 @@
         0.0
       ],
       "parameters": {
-        "theta": -1.4542137869155878,
-        "nominal_theta_rad": -1.5707963267948966,
+        "theta": -1.5707963267948966
+      },
+      "calibration": {
+        "theta_actual_rad": -1.4542137869155878,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": -58744572.84853774,
-        "area_omega_rad": -1.4542137869155878,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9983015970432227
       },
@@ -1731,10 +1735,8 @@
       "width": 1.0000000000000001e-11,
       "amplitude": 0.0,
       "virtual": true,
-      "parameters": {
-        "theta": 0.0,
-        "duration_ns": 0.01,
-        "expected_fidelity": 1.0
+      "calibration": {
+        "duration_ns": 0.01
       },
       "note": "virtual frame change for qubit 0"
     },
@@ -2155,12 +2157,13 @@
         0.0
       ],
       "parameters": {
-        "theta": 3.040349921589341,
-        "nominal_theta_rad": 3.141592653589793,
+        "theta": 3.141592653589793
+      },
+      "calibration": {
+        "theta_actual_rad": 3.040349921589341,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": 122818294.71076141,
-        "area_omega_rad": 3.040349921589341,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9987194233958641
       },
@@ -2583,12 +2586,13 @@
         0.0
       ],
       "parameters": {
-        "theta": -3.040349921589341,
-        "nominal_theta_rad": -3.141592653589793,
+        "theta": -3.141592653589793
+      },
+      "calibration": {
+        "theta_actual_rad": -3.040349921589341,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": -122818294.71076141,
-        "area_omega_rad": -3.040349921589341,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9987194233958641
       },
@@ -3011,12 +3015,13 @@
         0.0
       ],
       "parameters": {
-        "theta": 1.4695535947944443,
-        "nominal_theta_rad": 1.5707963267948966,
+        "theta": 1.5707963267948966
+      },
+      "calibration": {
+        "theta_actual_rad": 1.4695535947944443,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": 59364241.33850123,
-        "area_omega_rad": 1.4695535947944443,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9987188542210633
       },
@@ -3439,12 +3444,13 @@
         0.0
       ],
       "parameters": {
-        "theta": -1.4695535947944443,
-        "nominal_theta_rad": -1.5707963267948966,
+        "theta": -1.5707963267948966
+      },
+      "calibration": {
+        "theta_actual_rad": -1.4695535947944443,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": -59364241.33850123,
-        "area_omega_rad": -1.4695535947944443,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9987188542210633
       },
@@ -3461,10 +3467,8 @@
       "width": 1.0000000000000001e-11,
       "amplitude": 0.0,
       "virtual": true,
-      "parameters": {
-        "theta": 0.0,
-        "duration_ns": 0.01,
-        "expected_fidelity": 1.0
+      "calibration": {
+        "duration_ns": 0.01
       },
       "note": "virtual frame change for qubit 1"
     },
@@ -3885,12 +3889,13 @@
         0.0
       ],
       "parameters": {
-        "theta": 3.055689729468197,
-        "nominal_theta_rad": 3.141592653589793,
+        "theta": 3.141592653589793
+      },
+      "calibration": {
+        "theta_actual_rad": 3.055689729468197,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": 123437963.20072488,
-        "area_omega_rad": 3.055689729468197,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9990778975826295
       },
@@ -4313,12 +4318,13 @@
         0.0
       ],
       "parameters": {
-        "theta": -3.055689729468197,
-        "nominal_theta_rad": -3.141592653589793,
+        "theta": -3.141592653589793
+      },
+      "calibration": {
+        "theta_actual_rad": -3.055689729468197,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": -123437963.20072488,
-        "area_omega_rad": -3.055689729468197,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9990778975826428
       },
@@ -4741,12 +4747,13 @@
         0.0
       ],
       "parameters": {
-        "theta": 1.4848934026733007,
-        "nominal_theta_rad": 1.5707963267948966,
+        "theta": 1.5707963267948966
+      },
+      "calibration": {
+        "theta_actual_rad": 1.4848934026733007,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": 59983909.82846471,
-        "area_omega_rad": 1.4848934026733007,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9990776996948586
       },
@@ -5169,12 +5176,13 @@
         0.0
       ],
       "parameters": {
-        "theta": -1.4848934026733007,
-        "nominal_theta_rad": -1.5707963267948966,
+        "theta": -1.5707963267948966
+      },
+      "calibration": {
+        "theta_actual_rad": -1.4848934026733007,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": -59983909.82846471,
-        "area_omega_rad": -1.4848934026733007,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9990776996948586
       },
@@ -5191,10 +5199,8 @@
       "width": 1.0000000000000001e-11,
       "amplitude": 0.0,
       "virtual": true,
-      "parameters": {
-        "theta": 0.0,
-        "duration_ns": 0.01,
-        "expected_fidelity": 1.0
+      "calibration": {
+        "duration_ns": 0.01
       },
       "note": "virtual frame change for qubit 2"
     },
@@ -5615,12 +5621,13 @@
         0.0
       ],
       "parameters": {
-        "theta": 2.9943304979527716,
-        "nominal_theta_rad": 3.141592653589793,
+        "theta": 3.141592653589793
+      },
+      "calibration": {
+        "theta_actual_rad": 2.9943304979527716,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": 120959289.24087098,
-        "area_omega_rad": 2.9943304979527716,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.997289795902432
       },
@@ -6043,12 +6050,13 @@
         0.0
       ],
       "parameters": {
-        "theta": -2.9943304979527716,
-        "nominal_theta_rad": -3.141592653589793,
+        "theta": -3.141592653589793
+      },
+      "calibration": {
+        "theta_actual_rad": -2.9943304979527716,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": -120959289.24087098,
-        "area_omega_rad": -2.9943304979527716,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.997289795902432
       },
@@ -6471,12 +6479,13 @@
         0.0
       ],
       "parameters": {
-        "theta": 1.423534171157875,
-        "nominal_theta_rad": 1.5707963267948966,
+        "theta": 1.5707963267948966
+      },
+      "calibration": {
+        "theta_actual_rad": 1.423534171157875,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": 57505235.86861079,
-        "area_omega_rad": 1.423534171157875,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9972904682782294
       },
@@ -6899,12 +6908,13 @@
         0.0
       ],
       "parameters": {
-        "theta": -1.423534171157875,
-        "nominal_theta_rad": -1.5707963267948966,
+        "theta": -1.5707963267948966
+      },
+      "calibration": {
+        "theta_actual_rad": -1.423534171157875,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": -57505235.86861079,
-        "area_omega_rad": -1.423534171157875,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9972904682782439
       },
@@ -6921,10 +6931,8 @@
       "width": 1.0000000000000001e-11,
       "amplitude": 0.0,
       "virtual": true,
-      "parameters": {
-        "theta": 0.0,
-        "duration_ns": 0.01,
-        "expected_fidelity": 1.0
+      "calibration": {
+        "duration_ns": 0.01
       },
       "note": "virtual frame change for qubit 3"
     },
@@ -7345,12 +7353,13 @@
         0.0
       ],
       "parameters": {
-        "theta": 3.0250101137104846,
-        "nominal_theta_rad": 3.141592653589793,
+        "theta": 3.141592653589793
+      },
+      "calibration": {
+        "theta_actual_rad": 3.0250101137104846,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": 122198626.22079794,
-        "area_omega_rad": 3.0250101137104846,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9983015684729791
       },
@@ -7773,12 +7782,13 @@
         0.0
       ],
       "parameters": {
-        "theta": -3.0250101137104846,
-        "nominal_theta_rad": -3.141592653589793,
+        "theta": -3.141592653589793
+      },
+      "calibration": {
+        "theta_actual_rad": -3.0250101137104846,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": -122198626.22079794,
-        "area_omega_rad": -3.0250101137104846,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9983015684729791
       },
@@ -8201,12 +8211,13 @@
         0.0
       ],
       "parameters": {
-        "theta": 1.4542137869155878,
-        "nominal_theta_rad": 1.5707963267948966,
+        "theta": 1.5707963267948966
+      },
+      "calibration": {
+        "theta_actual_rad": 1.4542137869155878,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": 58744572.84853774,
-        "area_omega_rad": 1.4542137869155878,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9983015940899058
       },
@@ -8629,12 +8640,13 @@
         0.0
       ],
       "parameters": {
-        "theta": -1.4542137869155878,
-        "nominal_theta_rad": -1.5707963267948966,
+        "theta": -1.5707963267948966
+      },
+      "calibration": {
+        "theta_actual_rad": -1.4542137869155878,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": -58744572.84853774,
-        "area_omega_rad": -1.4542137869155878,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9983015970432227
       },
@@ -8651,10 +8663,8 @@
       "width": 1.0000000000000001e-11,
       "amplitude": 0.0,
       "virtual": true,
-      "parameters": {
-        "theta": 0.0,
-        "duration_ns": 0.01,
-        "expected_fidelity": 1.0
+      "calibration": {
+        "duration_ns": 0.01
       },
       "note": "virtual frame change for qubit 4"
     },
@@ -9075,12 +9085,13 @@
         0.0
       ],
       "parameters": {
-        "theta": 3.0495538063166547,
-        "nominal_theta_rad": 3.141592653589793,
+        "theta": 3.141592653589793
+      },
+      "calibration": {
+        "theta_actual_rad": 3.0495538063166547,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": 123190095.8047395,
-        "area_omega_rad": 3.0495538063166547,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9989413085725201
       },
@@ -9503,12 +9514,13 @@
         0.0
       ],
       "parameters": {
-        "theta": -3.0495538063166547,
-        "nominal_theta_rad": -3.141592653589793,
+        "theta": -3.141592653589793
+      },
+      "calibration": {
+        "theta_actual_rad": -3.0495538063166547,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": -123190095.8047395,
-        "area_omega_rad": -3.0495538063166547,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9989413085725201
       },
@@ -9931,12 +9943,13 @@
         0.0
       ],
       "parameters": {
-        "theta": 1.4787574795217582,
-        "nominal_theta_rad": 1.5707963267948966,
+        "theta": 1.5707963267948966
+      },
+      "calibration": {
+        "theta_actual_rad": 1.4787574795217582,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": 59736042.432479315,
-        "area_omega_rad": 1.4787574795217582,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9989412307429162
       },
@@ -10359,12 +10372,13 @@
         0.0
       ],
       "parameters": {
-        "theta": -1.4787574795217582,
-        "nominal_theta_rad": -1.5707963267948966,
+        "theta": -1.5707963267948966
+      },
+      "calibration": {
+        "theta_actual_rad": -1.4787574795217582,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": -59736042.432479315,
-        "area_omega_rad": -1.4787574795217582,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9989412323589689
       },
@@ -10381,10 +10395,8 @@
       "width": 1.0000000000000001e-11,
       "amplitude": 0.0,
       "virtual": true,
-      "parameters": {
-        "theta": 0.0,
-        "duration_ns": 0.01,
-        "expected_fidelity": 1.0
+      "calibration": {
+        "duration_ns": 0.01
       },
       "note": "virtual frame change for qubit 5"
     },
@@ -10805,12 +10817,13 @@
         0.0
       ],
       "parameters": {
-        "theta": 3.0066023442558567,
-        "nominal_theta_rad": 3.141592653589793,
+        "theta": 3.141592653589793
+      },
+      "calibration": {
+        "theta_actual_rad": 3.0066023442558567,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": 121455024.03284176,
-        "area_omega_rad": 3.0066023442558567,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9977236399266841
       },
@@ -11233,12 +11246,13 @@
         0.0
       ],
       "parameters": {
-        "theta": -3.0066023442558567,
-        "nominal_theta_rad": -3.141592653589793,
+        "theta": -3.141592653589793
+      },
+      "calibration": {
+        "theta_actual_rad": -3.0066023442558567,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": -121455024.03284176,
-        "area_omega_rad": -3.0066023442558567,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9977236399266841
       },
@@ -11661,12 +11675,13 @@
         0.0
       ],
       "parameters": {
-        "theta": 1.4358060174609601,
-        "nominal_theta_rad": 1.5707963267948966,
+        "theta": 1.5707963267948966
+      },
+      "calibration": {
+        "theta_actual_rad": 1.4358060174609601,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": 58000970.660581574,
-        "area_omega_rad": 1.4358060174609601,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9977228356189667
       },
@@ -12089,12 +12104,13 @@
         0.0
       ],
       "parameters": {
-        "theta": -1.4358060174609601,
-        "nominal_theta_rad": -1.5707963267948966,
+        "theta": -1.5707963267948966
+      },
+      "calibration": {
+        "theta_actual_rad": -1.4358060174609601,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": -58000970.660581574,
-        "area_omega_rad": -1.4358060174609601,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9977228356189667
       },
@@ -12111,10 +12127,8 @@
       "width": 1.0000000000000001e-11,
       "amplitude": 0.0,
       "virtual": true,
-      "parameters": {
-        "theta": 0.0,
-        "duration_ns": 0.01,
-        "expected_fidelity": 1.0
+      "calibration": {
+        "duration_ns": 0.01
       },
       "note": "virtual frame change for qubit 6"
     },
@@ -12535,12 +12549,13 @@
         0.0
       ],
       "parameters": {
-        "theta": 3.055689729468197,
-        "nominal_theta_rad": 3.141592653589793,
+        "theta": 3.141592653589793
+      },
+      "calibration": {
+        "theta_actual_rad": 3.055689729468197,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": 123437963.20072488,
-        "area_omega_rad": 3.055689729468197,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9990778975826295
       },
@@ -12963,12 +12978,13 @@
         0.0
       ],
       "parameters": {
-        "theta": -3.055689729468197,
-        "nominal_theta_rad": -3.141592653589793,
+        "theta": -3.141592653589793
+      },
+      "calibration": {
+        "theta_actual_rad": -3.055689729468197,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": -123437963.20072488,
-        "area_omega_rad": -3.055689729468197,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9990778975826428
       },
@@ -13391,12 +13407,13 @@
         0.0
       ],
       "parameters": {
-        "theta": 1.4848934026733007,
-        "nominal_theta_rad": 1.5707963267948966,
+        "theta": 1.5707963267948966
+      },
+      "calibration": {
+        "theta_actual_rad": 1.4848934026733007,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": 59983909.82846471,
-        "area_omega_rad": 1.4848934026733007,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9990776996948586
       },
@@ -13819,12 +13836,13 @@
         0.0
       ],
       "parameters": {
-        "theta": -1.4848934026733007,
-        "nominal_theta_rad": -1.5707963267948966,
+        "theta": -1.5707963267948966
+      },
+      "calibration": {
+        "theta_actual_rad": -1.4848934026733007,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": -59983909.82846471,
-        "area_omega_rad": -1.4848934026733007,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9990776996948586
       },
@@ -13841,10 +13859,8 @@
       "width": 1.0000000000000001e-11,
       "amplitude": 0.0,
       "virtual": true,
-      "parameters": {
-        "theta": 0.0,
-        "duration_ns": 0.01,
-        "expected_fidelity": 1.0
+      "calibration": {
+        "duration_ns": 0.01
       },
       "note": "virtual frame change for qubit 7"
     },
@@ -14265,12 +14281,13 @@
         0.0
       ],
       "parameters": {
-        "theta": 3.0587576910439687,
-        "nominal_theta_rad": 3.141592653589793,
+        "theta": 3.141592653589793
+      },
+      "calibration": {
+        "theta_actual_rad": 3.0587576910439687,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": 123561896.89871758,
-        "area_omega_rad": 3.0587576910439687,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9991424738378062
       },
@@ -14693,12 +14710,13 @@
         0.0
       ],
       "parameters": {
-        "theta": -3.0587576910439687,
-        "nominal_theta_rad": -3.141592653589793,
+        "theta": -3.141592653589793
+      },
+      "calibration": {
+        "theta_actual_rad": -3.0587576910439687,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": -123561896.89871758,
-        "area_omega_rad": -3.0587576910439687,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9991424738378062
       },
@@ -15121,12 +15139,13 @@
         0.0
       ],
       "parameters": {
-        "theta": 1.4879613642490719,
-        "nominal_theta_rad": 1.5707963267948966,
+        "theta": 1.5707963267948966
+      },
+      "calibration": {
+        "theta_actual_rad": 1.4879613642490719,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": 60107843.5264574,
-        "area_omega_rad": 1.4879613642490719,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9991426801223942
       },
@@ -15549,12 +15568,13 @@
         0.0
       ],
       "parameters": {
-        "theta": -1.4879613642490719,
-        "nominal_theta_rad": -1.5707963267948966,
+        "theta": -1.5707963267948966
+      },
+      "calibration": {
+        "theta_actual_rad": -1.4879613642490719,
         "duration_ns": 50.00000000000001,
         "sigma_ns": 10.000000000000002,
         "omega_peak_rad_per_s": -60107843.5264574,
-        "area_omega_rad": -1.4879613642490719,
         "default_phase_rad": 0.0,
         "expected_fidelity": 0.9991426801223942
       },
@@ -15571,10 +15591,8 @@
       "width": 1.0000000000000001e-11,
       "amplitude": 0.0,
       "virtual": true,
-      "parameters": {
-        "theta": 0.0,
-        "duration_ns": 0.01,
-        "expected_fidelity": 1.0
+      "calibration": {
+        "duration_ns": 0.01
       },
       "note": "virtual frame change for qubit 8"
     },
@@ -17196,8 +17214,10 @@
         0.0
       ],
       "parameters": {
-        "theta": 0.6504078540635119,
-        "nominal_theta_rad": 0.7853981633974483,
+        "theta": 0.7853981633974483
+      },
+      "calibration": {
+        "theta_actual_rad": 0.6504078540635119,
         "duration_ns": 200.00000000000003,
         "J_amp_rad_per_s": 3252039.270317559,
         "J_area_rad": 0.6504078540635119,
@@ -18823,8 +18843,10 @@
         0.0
       ],
       "parameters": {
-        "theta": 0.6749515466696822,
-        "nominal_theta_rad": 0.7853981633974483,
+        "theta": 0.7853981633974483
+      },
+      "calibration": {
+        "theta_actual_rad": 0.6749515466696822,
         "duration_ns": 200.00000000000003,
         "J_amp_rad_per_s": 3374757.7333484106,
         "J_area_rad": 0.6749515466696822,
@@ -20450,8 +20472,10 @@
         0.0
       ],
       "parameters": {
-        "theta": 0.5031456984264903,
-        "nominal_theta_rad": 0.7853981633974483,
+        "theta": 0.7853981633974483
+      },
+      "calibration": {
+        "theta_actual_rad": 0.5031456984264903,
         "duration_ns": 200.00000000000003,
         "J_amp_rad_per_s": 2515728.492132451,
         "J_area_rad": 0.5031456984264903,
@@ -22077,8 +22101,10 @@
         0.0
       ],
       "parameters": {
-        "theta": 0.662679700366597,
-        "nominal_theta_rad": 0.7853981633974483,
+        "theta": 0.7853981633974483
+      },
+      "calibration": {
+        "theta_actual_rad": 0.662679700366597,
         "duration_ns": 200.00000000000003,
         "J_amp_rad_per_s": 3313398.5018329844,
         "J_area_rad": 0.662679700366597,
@@ -23704,8 +23730,10 @@
         0.0
       ],
       "parameters": {
-        "theta": 0.6565437772150544,
-        "nominal_theta_rad": 0.7853981633974483,
+        "theta": 0.7853981633974483
+      },
+      "calibration": {
+        "theta_actual_rad": 0.6565437772150544,
         "duration_ns": 200.00000000000003,
         "J_amp_rad_per_s": 3282718.8860752718,
         "J_area_rad": 0.6565437772150544,
@@ -25331,8 +25359,10 @@
         0.0
       ],
       "parameters": {
-        "theta": 0.5645049299419159,
-        "nominal_theta_rad": 0.7853981633974483,
+        "theta": 0.7853981633974483
+      },
+      "calibration": {
+        "theta_actual_rad": 0.5645049299419159,
         "duration_ns": 200.00000000000003,
         "J_amp_rad_per_s": 2822524.6497095795,
         "J_area_rad": 0.5645049299419159,
@@ -26958,8 +26988,10 @@
         0.0
       ],
       "parameters": {
-        "theta": 0.607456392002714,
-        "nominal_theta_rad": 0.7853981633974483,
+        "theta": 0.7853981633974483
+      },
+      "calibration": {
+        "theta_actual_rad": 0.607456392002714,
         "duration_ns": 200.00000000000003,
         "J_amp_rad_per_s": 3037281.9600135693,
         "J_area_rad": 0.607456392002714,
@@ -28585,8 +28617,10 @@
         0.0
       ],
       "parameters": {
-        "theta": 0.607456392002714,
-        "nominal_theta_rad": 0.7853981633974483,
+        "theta": 0.7853981633974483
+      },
+      "calibration": {
+        "theta_actual_rad": 0.607456392002714,
         "duration_ns": 200.00000000000003,
         "J_amp_rad_per_s": 3037281.9600135693,
         "J_area_rad": 0.607456392002714,
@@ -30212,8 +30246,10 @@
         0.0
       ],
       "parameters": {
-        "theta": 0.6381360077604268,
-        "nominal_theta_rad": 0.7853981633974483,
+        "theta": 0.7853981633974483
+      },
+      "calibration": {
+        "theta_actual_rad": 0.6381360077604268,
         "duration_ns": 200.00000000000003,
         "J_amp_rad_per_s": 3190680.0388021334,
         "J_area_rad": 0.6381360077604268,
@@ -31839,8 +31875,10 @@
         0.0
       ],
       "parameters": {
-        "theta": 0.6504078540635119,
-        "nominal_theta_rad": 0.7853981633974483,
+        "theta": 0.7853981633974483
+      },
+      "calibration": {
+        "theta_actual_rad": 0.6504078540635119,
         "duration_ns": 200.00000000000003,
         "J_amp_rad_per_s": 3252039.270317559,
         "J_area_rad": 0.6504078540635119,
@@ -33466,8 +33504,10 @@
         0.0
       ],
       "parameters": {
-        "theta": 0.6381360077604268,
-        "nominal_theta_rad": 0.7853981633974483,
+        "theta": 0.7853981633974483
+      },
+      "calibration": {
+        "theta_actual_rad": 0.6381360077604268,
         "duration_ns": 200.00000000000003,
         "J_amp_rad_per_s": 3190680.0388021334,
         "J_area_rad": 0.6381360077604268,
@@ -35093,8 +35133,10 @@
         0.0
       ],
       "parameters": {
-        "theta": 0.5890486225480862,
-        "nominal_theta_rad": 0.7853981633974483,
+        "theta": 0.7853981633974483
+      },
+      "calibration": {
+        "theta_actual_rad": 0.5890486225480862,
         "duration_ns": 200.00000000000003,
         "J_amp_rad_per_s": 2945243.112740431,
         "J_area_rad": 0.5890486225480862,
