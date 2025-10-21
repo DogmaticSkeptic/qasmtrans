@@ -90,7 +90,7 @@ void dumpQASM(std::shared_ptr<QASMTrans::Circuit> circuit, const char *filename,
                 {
                     qasm_file << toLowerCase(g.gateToString()) << "; \n";
                     // add gate name and count to map
-                    std::string gate_name = toLowerCase(QASMTrans::OP_NAMES[g.op_name]);
+                    std::string gate_name = toLowerCase(g.name());
                     if (basis_gate_counts.find(gate_name) == basis_gate_counts.end())
                     {
                         basis_gate_counts.insert(std::make_pair(gate_name, 1));

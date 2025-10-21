@@ -6,6 +6,11 @@
 #include <sstream>
 #include <filesystem>
 #include <exception>
+#include <unordered_map>
+#include <unordered_set>
+#include <fstream>
+
+#include "../include/nlomann/json.hpp"
 
 #include "../include/QASMTransPrimitives.hpp"
 #include "../include/dump_pulses.hpp"
@@ -16,6 +21,7 @@
 #include "../include/qick_emitter.hpp"
 
 using namespace QASMTrans;
+using json = nlohmann::json;
 
 namespace
 {
@@ -33,6 +39,15 @@ namespace
         return candidate.string();
     }
 }
+
+namespace QASMTrans
+{
+    std::unordered_set<std::string> g_device_basis_gates;
+    std::unordered_map<std::string, std::string> g_merged_gate_aliases;
+}
+
+using QASMTrans::g_device_basis_gates;
+using QASMTrans::g_merged_gate_aliases;
 
 void print_help()
 {
@@ -52,6 +67,8 @@ void print_help()
     std::cout << "-p <path>         Pulse template json (optional; enables pulse dumping)" << std::endl;
     std::cout << "-e <config>       Emit pulses via QICK using the provided QICK config" << std::endl;
     std::cout << "--emit-run        When paired with -e, stream pulses to hardware (otherwise summary only)" << std::endl;
+    std::cout << "--merge-allow-params     Include parameterised logical gates as merge candidates (default)" << std::endl;
+    std::cout << "--merge-disallow-params  Exclude parameterised logical gates from merge candidate analysis" << std::endl;
     std::cout << "-h                print the help function" << std::endl;
 }
 
@@ -66,6 +83,7 @@ int main(int argc, char **argv)
     bool emit_requested = false;
     bool emit_run = false;
     std::string qick_config_path;
+    bool allow_parameterized_merge_candidates = true;
     std::map<std::string, IdxType> machineQubits = {
         {"ibmq_toronto", 27},
         {"ibmq_jakarta", 7},
@@ -124,6 +142,14 @@ int main(int argc, char **argv)
         if (cmdOptionExists(argv, argv + argc, "--emit-run"))
         {
             emit_run = true;
+        }
+        if (cmdOptionExists(argv, argv + argc, "--merge-disallow-params"))
+        {
+            allow_parameterized_merge_candidates = false;
+        }
+        if (cmdOptionExists(argv, argv + argc, "--merge-allow-params"))
+        {
+            allow_parameterized_merge_candidates = true;
         }
         if (cmdOptionExists(argv, argv + argc, "-backend_list"))
         {
@@ -188,6 +214,83 @@ int main(int argc, char **argv)
                 return 1;
             }
             string backendpath = string(getCmdOption(argv, argv + argc, "-c"));
+
+            g_device_basis_gates.clear();
+            g_merged_gate_aliases.clear();
+            try
+            {
+                std::ifstream backend_stream(backendpath);
+                if (backend_stream.is_open())
+                {
+                    json backend_config = json::parse(backend_stream, nullptr, true, true);
+                    auto to_lower = [](std::string value)
+                    {
+                        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c)
+                                       { return static_cast<char>(std::tolower(c)); });
+                        return value;
+                    };
+                    auto ingest_aliases = [&](const json &aliases)
+                    {
+                        if (!aliases.is_object())
+                        {
+                            return;
+                        }
+                        for (const auto &item : aliases.items())
+                        {
+                            std::string alias_name = to_lower(item.key());
+                            if (alias_name.empty())
+                            {
+                                continue;
+                            }
+                            g_device_basis_gates.insert(alias_name);
+                            const json &info = item.value();
+                            if (!info.is_object())
+                            {
+                                continue;
+                            }
+                            std::string logical = to_lower(info.value("logical_gate", std::string{}));
+                            if (logical.empty())
+                            {
+                                continue;
+                            }
+                            if (g_merged_gate_aliases.find(logical) == g_merged_gate_aliases.end())
+                            {
+                                g_merged_gate_aliases[logical] = alias_name;
+                            }
+                        }
+                    };
+                    auto ingest_basis = [&](const json &arr)
+                    {
+                        if (!arr.is_array())
+                        {
+                            return;
+                        }
+                        for (const auto &entry : arr)
+                        {
+                            if (entry.is_string())
+                            {
+                                std::string gate = to_lower(entry.get<std::string>());
+                                if (!gate.empty())
+                                {
+                                    g_device_basis_gates.insert(gate);
+                                }
+                            }
+                        }
+                    };
+                    ingest_basis(backend_config.value("basis_gates", json::array()));
+                    if (backend_config.contains("metadata") && backend_config["metadata"].is_object())
+                    {
+                        ingest_basis(backend_config["metadata"].value("basis_gates", json::array()));
+                        ingest_aliases(backend_config["metadata"].value("merged_gate_aliases", json::object()));
+                    }
+                    ingest_aliases(backend_config.value("merged_gate_aliases", json::object()));
+                }
+            }
+            catch (const std::exception &)
+            {
+                // leave basis set empty on parse failure; decompose will proceed normally
+            }
+
             //================= Parsing ==================
             qasm_parser parser(filename);
             IdxType n_qubits = parser.num_qubits();
@@ -229,7 +332,13 @@ int main(int argc, char **argv)
                 try
                 {
                     pulses_output_path = derivePulseOutputPath(output_path);
-                    dumpPulses(circuit, filename, backendpath, pulse_template_path, pulses_output_path, debug_level);
+                    dumpPulses(circuit,
+                               filename,
+                               backendpath,
+                               pulse_template_path,
+                               pulses_output_path,
+                               debug_level,
+                               allow_parameterized_merge_candidates);
                     cout << "Saving output pulses to: " << pulses_output_path << endl;
                 }
                 catch (const std::exception &ex)
