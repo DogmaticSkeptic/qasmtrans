@@ -1,9 +1,14 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
+#include <iostream>
+#include <limits>
 #include <numeric>
+#include <optional>
 #include <queue>
+#include <random>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
@@ -28,7 +33,13 @@ inline std::vector<std::vector<IdxType>> partition_chip(const std::shared_ptr<Ch
         return {};
     }
 
-    std::vector<IdxType> available_nodes(chip->chip_qubit_num);
+    const std::size_t node_count = static_cast<std::size_t>(chip->chip_qubit_num);
+    if (node_count == 0)
+    {
+        throw std::runtime_error("partition_chip: device graph has no qubits");
+    }
+
+    std::vector<IdxType> available_nodes(node_count);
     std::iota(available_nodes.begin(), available_nodes.end(), 0);
 
     IdxType total_requested = 0;
@@ -51,11 +62,105 @@ inline std::vector<std::vector<IdxType>> partition_chip(const std::shared_ptr<Ch
         degrees[node] = static_cast<IdxType>(chip->edge_list[node].size());
     }
 
+    const double kMinError = 1e-6;
+    const double kDefaultSingleError = 5e-3;
+    const double kDefaultTwoQubitError = 5e-2;
+
+    auto lookup_two_qubit_error = [&](IdxType ctrl, IdxType tgt) -> double
+    {
+        if (ctrl < 0 || tgt < 0)
+        {
+            return std::numeric_limits<double>::quiet_NaN();
+        }
+        auto it = chip->two_qubit_errors.find({ctrl, tgt});
+        if (it == chip->two_qubit_errors.end() || it->second.empty())
+        {
+            return std::numeric_limits<double>::quiet_NaN();
+        }
+        auto cx_it = it->second.find("cx");
+        if (cx_it != it->second.end())
+        {
+            return cx_it->second;
+        }
+        double sum = 0.0;
+        for (const auto &entry : it->second)
+        {
+            sum += entry.second;
+        }
+        return sum / static_cast<double>(it->second.size());
+    };
+
+    auto edge_error = [&](IdxType u, IdxType v) -> double
+    {
+        double direct = lookup_two_qubit_error(u, v);
+        double reverse = lookup_two_qubit_error(v, u);
+
+        double best = std::numeric_limits<double>::quiet_NaN();
+        if (!std::isnan(direct))
+        {
+            best = direct;
+        }
+        if (!std::isnan(reverse))
+        {
+            best = std::isnan(best) ? reverse : std::min(best, reverse);
+        }
+
+        if (std::isnan(best))
+        {
+            return kDefaultTwoQubitError;
+        }
+        return std::max(best, kMinError);
+    };
+
+    auto single_qubit_error = [&](IdxType q) -> double
+    {
+        if (q < 0 || q >= static_cast<IdxType>(chip->single_qubit_errors.size()))
+        {
+            return kDefaultSingleError;
+        }
+        const auto &err_map = chip->single_qubit_errors[q];
+        if (err_map.empty())
+        {
+            return kDefaultSingleError;
+        }
+        double sum = 0.0;
+        for (const auto &entry : err_map)
+        {
+            sum += entry.second;
+        }
+        return std::max(sum / static_cast<double>(err_map.size()), kMinError);
+    };
+
+    std::vector<double> node_penalty(available_nodes.size(), kDefaultSingleError + kDefaultTwoQubitError);
+    for (IdxType node = 0; node < static_cast<IdxType>(available_nodes.size()); ++node)
+    {
+        double sq_error = single_qubit_error(node);
+        double link_sum = 0.0;
+        if (node < static_cast<IdxType>(chip->edge_list.size()))
+        {
+            for (IdxType neighbour : chip->edge_list[node])
+            {
+                link_sum += edge_error(node, neighbour);
+            }
+        }
+        double degree = static_cast<double>(degrees[node]);
+        double link_avg = degree > 0.0 ? link_sum / degree : kDefaultTwoQubitError;
+        double penalty = sq_error + link_avg;
+        node_penalty[node] = std::max(penalty, kMinError);
+    }
+
     struct PartitionRequest
     {
         IdxType size;
         std::size_t original_index;
     };
+
+    std::cout << "[partition] Requested sizes:";
+    for (IdxType size : partition_sizes)
+    {
+        std::cout << " " << size;
+    }
+    std::cout << std::endl;
 
     std::vector<PartitionRequest> requests;
     requests.reserve(partition_sizes.size());
@@ -76,132 +181,480 @@ inline std::vector<std::vector<IdxType>> partition_chip(const std::shared_ptr<Ch
 
     std::vector<std::vector<IdxType>> result(partition_sizes.size());
     std::vector<char> used(available_nodes.size(), 0);
+    std::vector<int> owner(available_nodes.size(), -1);
 
-    auto bfs_collect = [&](IdxType seed, IdxType needed, const std::vector<char> &used_state) -> std::vector<IdxType>
+    const auto &distance_mat = chip->distance_mat;
+    bool has_distance_matrix = distance_mat.size() == available_nodes.size();
+
+    struct FrontierCandidate
     {
-        if (used_state[seed])
+        IdxType node;
+        IdxType degree;
+        double penalty;
+    };
+    struct FrontierCompare
+    {
+        bool operator()(const FrontierCandidate &lhs, const FrontierCandidate &rhs) const
         {
-            return {};
+            if (lhs.degree != rhs.degree)
+            {
+                return lhs.degree > rhs.degree;
+            }
+            if (lhs.penalty != rhs.penalty)
+            {
+                return lhs.penalty > rhs.penalty;
+            }
+            return lhs.node > rhs.node;
         }
+    };
 
-        std::vector<char> visited(available_nodes.size(), 0);
-        std::queue<IdxType> q;
-        std::vector<IdxType> collected;
-        q.push(seed);
-        visited[seed] = 1;
-        collected.push_back(seed);
+    using FrontierQueue = std::priority_queue<FrontierCandidate, std::vector<FrontierCandidate>, FrontierCompare>;
 
-        while (!q.empty() && static_cast<IdxType>(collected.size()) < needed)
+    struct RegionState
+    {
+        std::vector<IdxType> nodes;
+        FrontierQueue frontier;
+    };
+
+    std::vector<RegionState> regions(requests.size());
+    std::vector<IdxType> target_sizes(requests.size(), 0);
+
+    auto enqueue_neighbors = [&](std::size_t region_id, IdxType node)
+    {
+        if (node < 0 || node >= static_cast<IdxType>(chip->edge_list.size()))
         {
-            IdxType current = q.front();
-            q.pop();
-            if (current < 0 || current >= static_cast<IdxType>(chip->edge_list.size()))
+            return;
+        }
+        for (IdxType neighbour : chip->edge_list[node])
+        {
+            if (neighbour < 0 || neighbour >= static_cast<IdxType>(owner.size()))
             {
                 continue;
             }
-
-            std::vector<IdxType> neighbours;
-            neighbours.reserve(chip->edge_list[current].size());
-            for (IdxType neighbour : chip->edge_list[current])
+            if (owner[neighbour] == static_cast<int>(region_id))
             {
-                if (neighbour < 0 || neighbour >= static_cast<IdxType>(available_nodes.size()))
-                {
-                    continue;
-                }
-                if (used_state[neighbour] || visited[neighbour])
-                {
-                    continue;
-                }
-                neighbours.push_back(neighbour);
+                continue;
             }
-            std::sort(neighbours.begin(), neighbours.end(),
-                      [&](IdxType lhs, IdxType rhs)
-                      {
-                          if (degrees[lhs] != degrees[rhs])
-                          {
-                              return degrees[lhs] < degrees[rhs];
-                          }
-                          return lhs < rhs;
-                      });
-
-            for (IdxType neighbour : neighbours)
-            {
-                if (static_cast<IdxType>(collected.size()) >= needed)
-                {
-                    break;
-                }
-                visited[neighbour] = 1;
-                q.push(neighbour);
-                collected.push_back(neighbour);
-            }
+            regions[region_id].frontier.push(FrontierCandidate{neighbour, degrees[neighbour], node_penalty[neighbour]});
         }
-
-        if (static_cast<IdxType>(collected.size()) == needed)
-        {
-            return collected;
-        }
-        return {};
     };
 
-    std::function<bool(std::size_t)> assign_partition = [&](std::size_t request_index) -> bool
+    auto add_node_to_region = [&](std::size_t region_id, IdxType node)
     {
-        if (request_index >= requests.size())
+        if (node < 0 || node >= static_cast<IdxType>(owner.size()))
+        {
+            return;
+        }
+        auto &region = regions[region_id];
+        region.nodes.push_back(node);
+        owner[node] = static_cast<int>(region_id);
+        used[node] = 1;
+        enqueue_neighbors(region_id, node);
+    };
+
+    auto remove_node_from_region = [&](std::size_t region_id, IdxType node)
+    {
+        if (node < 0 || node >= static_cast<IdxType>(owner.size()))
+        {
+            return;
+        }
+        auto &region = regions[region_id];
+        auto it = std::find(region.nodes.begin(), region.nodes.end(), node);
+        if (it != region.nodes.end())
+        {
+            region.nodes.erase(it);
+        }
+        owner[node] = -1;
+        used[node] = 0;
+    };
+
+    auto is_leaf_in_region = [&](std::size_t region_id, IdxType node) -> bool
+    {
+        if (node < 0 || node >= static_cast<IdxType>(owner.size()))
+        {
+            return false;
+        }
+        if (owner[node] != static_cast<int>(region_id))
+        {
+            return false;
+        }
+        if (node >= static_cast<IdxType>(chip->edge_list.size()))
         {
             return true;
         }
-
-        const auto &req = requests[request_index];
-        std::vector<IdxType> candidate_seeds;
-        candidate_seeds.reserve(available_nodes.size());
-        for (IdxType node = 0; node < static_cast<IdxType>(available_nodes.size()); ++node)
+        int neighbours_in_region = 0;
+        for (IdxType neighbour : chip->edge_list[node])
         {
-            if (!used[node])
+            if (neighbour < 0 || neighbour >= static_cast<IdxType>(owner.size()))
             {
-                candidate_seeds.push_back(node);
+                continue;
+            }
+            if (owner[neighbour] == static_cast<int>(region_id))
+            {
+                ++neighbours_in_region;
+                if (neighbours_in_region > 1)
+                {
+                    return false;
+                }
             }
         }
-        std::sort(candidate_seeds.begin(), candidate_seeds.end(),
-                  [&](IdxType lhs, IdxType rhs)
-                  {
-                      if (degrees[lhs] != degrees[rhs])
-                      {
-                          return degrees[lhs] < degrees[rhs];
-                      }
-                      return lhs < rhs;
-                  });
+        return true;
+    };
 
-        for (IdxType seed : candidate_seeds)
+    auto transfer_node = [&](std::size_t donor_id, std::size_t receiver_id, IdxType node)
+    {
+        remove_node_from_region(donor_id, node);
+        enqueue_neighbors(donor_id, node);
+        add_node_to_region(receiver_id, node);
+    };
+
+    auto choose_far_seed = [&](const std::vector<std::size_t> &assigned_regions) -> IdxType
+    {
+        if (!has_distance_matrix)
         {
-            auto candidate_nodes = bfs_collect(seed, req.size, used);
-            if (candidate_nodes.empty())
+            IdxType fallback = -1;
+            for (IdxType node = 0; node < static_cast<IdxType>(owner.size()); ++node)
+            {
+                if (owner[node] == -1)
+                {
+                    fallback = node;
+                    break;
+                }
+            }
+            return fallback;
+        }
+
+        IdxType best_node = -1;
+        IdxType best_distance = -1;
+        for (IdxType node = 0; node < static_cast<IdxType>(owner.size()); ++node)
+        {
+            if (owner[node] != -1)
             {
                 continue;
             }
 
-            for (IdxType node : candidate_nodes)
+            IdxType min_dist = std::numeric_limits<IdxType>::max();
+            if (!assigned_regions.empty())
             {
-                used[node] = 1;
+                for (std::size_t region_id : assigned_regions)
+                {
+                    for (IdxType seed_node : regions[region_id].nodes)
+                    {
+                        IdxType dist = distance_mat[node][seed_node];
+                        if (dist == std::numeric_limits<IdxType>::max())
+                        {
+                            continue;
+                        }
+                        if (dist < min_dist)
+                        {
+                            min_dist = dist;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                min_dist = 0;
             }
 
-            result[req.original_index] = candidate_nodes;
-
-            if (assign_partition(request_index + 1))
+            if (min_dist == std::numeric_limits<IdxType>::max())
             {
+                continue;
+            }
+            if (best_node == -1 || min_dist > best_distance)
+            {
+                best_distance = min_dist;
+                best_node = node;
+            }
+        }
+        return best_node;
+    };
+
+    std::vector<std::size_t> seeded_regions;
+    for (std::size_t idx = 0; idx < requests.size(); ++idx)
+    {
+        target_sizes[idx] = requests[idx].size;
+        std::cout << "[partition] Planning request " << requests[idx].original_index
+                  << " (size " << requests[idx].size << ")" << std::endl;
+
+        IdxType seed = choose_far_seed(seeded_regions);
+        if (seed < 0)
+        {
+            throw std::runtime_error("partition_chip: insufficient free qubits for seeding");
+        }
+        std::cout << "[partition] Seed for request " << requests[idx].original_index << ": " << seed << std::endl;
+        add_node_to_region(idx, seed);
+        seeded_regions.push_back(idx);
+    }
+
+    auto try_grow_once = [&](std::size_t region_id) -> bool
+    {
+        auto &region = regions[region_id];
+        while (!region.frontier.empty())
+        {
+            FrontierCandidate candidate = region.frontier.top();
+            region.frontier.pop();
+
+            if (candidate.node < 0 || candidate.node >= static_cast<IdxType>(owner.size()))
+            {
+                continue;
+            }
+
+            if (owner[candidate.node] == static_cast<int>(region_id))
+            {
+                continue;
+            }
+
+            if (owner[candidate.node] == -1)
+            {
+                add_node_to_region(region_id, candidate.node);
                 return true;
             }
+        }
 
-            for (IdxType node : candidate_nodes)
+        auto find_unused_random = [&]() -> IdxType
+        {
+            for (IdxType node = 0; node < static_cast<IdxType>(owner.size()); ++node)
             {
-                used[node] = 0;
+                if (owner[node] == -1)
+                {
+                    return node;
+                }
             }
+            return -1;
+        };
+
+        IdxType unused = find_unused_random();
+        if (unused >= 0)
+        {
+            add_node_to_region(region_id, unused);
+            return true;
+        }
+
+        IdxType best_node = -1;
+        std::size_t donor_id = std::numeric_limits<std::size_t>::max();
+        std::size_t donor_size = 0;
+
+        for (IdxType node : region.nodes)
+        {
+            if (node < 0 || node >= static_cast<IdxType>(chip->edge_list.size()))
+            {
+                continue;
+            }
+            for (IdxType neighbour : chip->edge_list[node])
+            {
+                if (neighbour < 0 || neighbour >= static_cast<IdxType>(owner.size()))
+                {
+                    continue;
+                }
+                int neighbour_owner = owner[neighbour];
+                if (neighbour_owner < 0 || neighbour_owner == static_cast<int>(region_id))
+                {
+                    continue;
+                }
+
+                std::size_t neighbour_region = static_cast<std::size_t>(neighbour_owner);
+                std::size_t neighbour_size = regions[neighbour_region].nodes.size();
+                if (neighbour_size > donor_size && neighbour_size > 1)
+                {
+                    if (!is_leaf_in_region(neighbour_region, neighbour))
+                    {
+                        continue;
+                    }
+                    donor_size = neighbour_size;
+                    donor_id = neighbour_region;
+                    best_node = neighbour;
+                }
+            }
+        }
+
+        if (best_node >= 0 && donor_id != std::numeric_limits<std::size_t>::max())
+        {
+            transfer_node(donor_id, region_id, best_node);
+            return true;
         }
 
         return false;
     };
 
-    if (!assign_partition(0))
+    const std::size_t max_iterations = available_nodes.size() * 10 + 1;
+    std::size_t iteration = 0;
+
+    while (true)
     {
-        throw std::runtime_error("partition_chip: unable to allocate contiguous region for circuit");
+        bool needs_more = false;
+        bool unassigned_exists = false;
+        for (std::size_t idx = 0; idx < regions.size(); ++idx)
+        {
+            if (regions[idx].nodes.size() < static_cast<std::size_t>(target_sizes[idx]))
+            {
+                needs_more = true;
+                break;
+            }
+        }
+        for (IdxType node = 0; node < static_cast<IdxType>(owner.size()); ++node)
+        {
+            if (owner[node] == -1)
+            {
+                unassigned_exists = true;
+                break;
+            }
+        }
+
+        if (!needs_more && !unassigned_exists)
+        {
+            break;
+        }
+
+        bool progress = false;
+
+        for (std::size_t idx = 0; idx < regions.size(); ++idx)
+        {
+            bool region_needs = regions[idx].nodes.size() < static_cast<std::size_t>(target_sizes[idx]);
+            bool should_grow = region_needs || unassigned_exists;
+            if (!should_grow)
+            {
+                continue;
+            }
+            if (try_grow_once(idx))
+            {
+                progress = true;
+            }
+        }
+
+        if (!progress)
+        {
+            break;
+        }
+
+        if (++iteration > max_iterations)
+        {
+            throw std::runtime_error("partition_chip: exceeded iteration limit during allocation");
+        }
+    }
+
+    for (IdxType node = 0; node < static_cast<IdxType>(owner.size()); ++node)
+    {
+        if (owner[node] != -1)
+        {
+            continue;
+        }
+
+        std::optional<std::size_t> attach_region;
+        if (node < static_cast<IdxType>(chip->edge_list.size()))
+        {
+            for (IdxType neighbour : chip->edge_list[node])
+            {
+                if (neighbour < 0 || neighbour >= static_cast<IdxType>(owner.size()))
+                {
+                    continue;
+                }
+                if (owner[neighbour] >= 0)
+                {
+                    attach_region = static_cast<std::size_t>(owner[neighbour]);
+                    break;
+                }
+            }
+        }
+        if (!attach_region.has_value())
+        {
+            attach_region = 0;
+        }
+        add_node_to_region(*attach_region, node);
+    }
+
+    auto rebalance = [&]()
+    {
+        bool moved = true;
+        while (moved)
+        {
+            moved = false;
+            for (std::size_t receiver_id = 0; receiver_id < regions.size(); ++receiver_id)
+            {
+                if (regions[receiver_id].nodes.size() >= static_cast<std::size_t>(target_sizes[receiver_id]))
+                {
+                    continue;
+                }
+
+                IdxType best_node = -1;
+                std::size_t donor_id = std::numeric_limits<std::size_t>::max();
+                std::size_t best_surplus = 0;
+
+                for (IdxType node : regions[receiver_id].nodes)
+                {
+                    if (node < 0 || node >= static_cast<IdxType>(chip->edge_list.size()))
+                    {
+                        continue;
+                    }
+                    for (IdxType neighbour : chip->edge_list[node])
+                    {
+                        if (neighbour < 0 || neighbour >= static_cast<IdxType>(owner.size()))
+                        {
+                            continue;
+                        }
+                        int neighbour_owner = owner[neighbour];
+                        if (neighbour_owner < 0 || neighbour_owner == static_cast<int>(receiver_id))
+                        {
+                            continue;
+                        }
+
+                        std::size_t donor_region = static_cast<std::size_t>(neighbour_owner);
+                        std::size_t donor_size = regions[donor_region].nodes.size();
+                        if (donor_size <= static_cast<std::size_t>(target_sizes[donor_region]))
+                        {
+                            continue;
+                        }
+                        if (donor_size <= 1)
+                        {
+                            continue;
+                        }
+                        if (!is_leaf_in_region(donor_region, neighbour))
+                        {
+                            continue;
+                        }
+
+                        if (donor_size > best_surplus)
+                        {
+                            best_surplus = donor_size;
+                            donor_id = donor_region;
+                            best_node = neighbour;
+                        }
+                    }
+                }
+
+                if (best_node >= 0 && donor_id != std::numeric_limits<std::size_t>::max())
+                {
+                    transfer_node(donor_id, receiver_id, best_node);
+                    moved = true;
+                    break;
+                }
+            }
+        }
+    };
+
+    rebalance();
+
+    for (std::size_t idx = 0; idx < regions.size(); ++idx)
+    {
+        auto &region = regions[idx];
+        std::sort(region.nodes.begin(), region.nodes.end());
+        result[requests[idx].original_index] = region.nodes;
+
+        if (region.nodes.size() < static_cast<std::size_t>(target_sizes[idx]))
+        {
+            throw std::runtime_error("partition_chip: unable to satisfy requested partition sizes");
+        }
+    }
+
+    std::cout << "[partition] Final partitions:" << std::endl;
+    for (std::size_t idx = 0; idx < result.size(); ++idx)
+    {
+        std::cout << "  [" << idx << "] ";
+        for (IdxType node : result[idx])
+        {
+            std::cout << node << " ";
+        }
+        std::cout << std::endl;
     }
 
     return result;
