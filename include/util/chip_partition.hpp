@@ -477,7 +477,7 @@ inline std::vector<std::vector<IdxType>> partition_chip(const std::shared_ptr<Ch
         return false;
     };
 
-    const std::size_t max_iterations = available_nodes.size() * 10 + 1;
+    const std::size_t max_iterations = available_nodes.size() * 1000 + 1;
     std::size_t iteration = 0;
 
     while (true)
@@ -720,6 +720,12 @@ inline std::shared_ptr<Chip> make_subchip(const std::shared_ptr<Chip> &chip,
 
     subchip->single_qubit_errors.assign(local_n, {});
     subchip->single_qubit_gate_lengths.assign(local_n, {});
+    subchip->t1.assign(local_n, std::nullopt);
+    subchip->t2.assign(local_n, std::nullopt);
+    subchip->freq.assign(local_n, std::nullopt);
+    subchip->readout_length.assign(local_n, std::nullopt);
+    subchip->prob_meas0_prep1.assign(local_n, std::nullopt);
+    subchip->prob_meas1_prep0.assign(local_n, std::nullopt);
     for (std::size_t i = 0; i < local_n; ++i)
     {
         IdxType global = nodes[i];
@@ -729,6 +735,30 @@ inline std::shared_ptr<Chip> make_subchip(const std::shared_ptr<Chip> &chip,
         }
         subchip->single_qubit_errors[i] = chip->single_qubit_errors[global];
         subchip->single_qubit_gate_lengths[i] = chip->single_qubit_gate_lengths[global];
+        if (global >= 0 && global < static_cast<IdxType>(chip->t1.size()))
+        {
+            subchip->t1[i] = chip->t1[global];
+        }
+        if (global >= 0 && global < static_cast<IdxType>(chip->t2.size()))
+        {
+            subchip->t2[i] = chip->t2[global];
+        }
+        if (global >= 0 && global < static_cast<IdxType>(chip->freq.size()))
+        {
+            subchip->freq[i] = chip->freq[global];
+        }
+        if (global >= 0 && global < static_cast<IdxType>(chip->readout_length.size()))
+        {
+            subchip->readout_length[i] = chip->readout_length[global];
+        }
+        if (global >= 0 && global < static_cast<IdxType>(chip->prob_meas0_prep1.size()))
+        {
+            subchip->prob_meas0_prep1[i] = chip->prob_meas0_prep1[global];
+        }
+        if (global >= 0 && global < static_cast<IdxType>(chip->prob_meas1_prep0.size()))
+        {
+            subchip->prob_meas1_prep0[i] = chip->prob_meas1_prep0[global];
+        }
     }
 
     for (const auto &entry : chip->two_qubit_errors)

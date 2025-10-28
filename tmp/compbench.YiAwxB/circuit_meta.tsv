@@ -1,0 +1,11 @@
+square_root|/Users/hoyt924/Documents/qasmtrans/data/test_benchmark/square_root_n18_basis.qasm|square_root_n18_basis.qasm|50|18
+vqe_uccsd|/Users/hoyt924/Documents/qasmtrans/data/test_benchmark/vqe_uccsd_n8.qasm|vqe_uccsd_n8.qasm|1100|8
+sat|/Users/hoyt924/Documents/qasmtrans/data/test_benchmark/sat_n11.qasm|sat_n11.qasm|90|5
+bwt|/Users/hoyt924/Documents/qasmtrans/data/test_benchmark/bwt_n21.qasm|bwt_n21.qasm|21300|21
+gcm|/Users/hoyt924/Documents/qasmtrans/data/test_benchmark/gcm_h6.qasm|gcm_h6.qasm|140|13
+hhl|/Users/hoyt924/Documents/qasmtrans/data/test_benchmark/hhl_n7.qasm|hhl_n7.qasm|25600|7
+qaoa|/Users/hoyt924/Documents/qasmtrans/data/test_benchmark/qaoa_n6.qasm|qaoa_n6.qasm|70|6
+qec|/Users/hoyt924/Documents/qasmtrans/data/test_benchmark/qec_sm_n5.qasm|qec_sm_n5.qasm|9|3
+adder_n4|/Users/hoyt924/Documents/QiskitTest/QiskitTest/adder_n4.qasm|adder_n4.qasm|20|4
+adder_n10|/Users/hoyt924/Documents/QiskitTest/QiskitTest/adder_n10.qasm|adder_n10.qasm|30|1
+adder_n64|/Users/hoyt924/Documents/QiskitTest/QiskitTest/adder_n64.qasm|adder_n64.qasm|130|64

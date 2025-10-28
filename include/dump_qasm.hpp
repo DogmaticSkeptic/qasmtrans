@@ -6,6 +6,9 @@
 #include <fstream>
 #include <utility>   // for std::make_pair
 #include <algorithm> // for toLowerCase
+#include <filesystem>
+#include <system_error>
+#include <cstring>
 
 #include "QASMTransPrimitives.hpp"
 #include "IR/gate.hpp"
@@ -21,103 +24,111 @@ std::string toLowerCase(const std::string &str)
                    { return std::tolower(c); });
     return result;
 }
-// Function to write QASM file
-void dumpQASM(std::shared_ptr<QASMTrans::Circuit> circuit, const char *filename, std::string &output_path, IdxType debug_level, IdxType mode)
+namespace
 {
-    std::string p(filename);
-    std::size_t pos = p.find_last_of("/\\");
-    std::string new_file = p.substr(pos + 1);
+inline std::string mode_prefix(IdxType mode)
+{
+    switch (mode)
+    {
+    case 0:
+        return "transpiled_IBMQ_";
+    case 1:
+        return "transpiled_IonQ_";
+    case 2:
+        return "transpiled_Quantinuum_";
+    case 3:
+        return "transpiled_Rigetti_";
+    case 4:
+        return "transpiled_Quafu_";
+    default:
+        return "transpiled_";
+    }
+}
+} // namespace
+
+// Function to write QASM file
+std::string dumpQASM(std::shared_ptr<QASMTrans::Circuit> circuit, const char *filename, const std::string &requested_output_path, IdxType debug_level, IdxType mode)
+{
+    namespace fs = std::filesystem;
+    std::string input_name = filename ? fs::path(filename).filename().string() : "circuit.qasm";
+
+    const bool treat_as_directory = requested_output_path.empty() ||
+                                    requested_output_path.back() == '/' ||
+                                    requested_output_path.back() == '\\' ||
+                                    fs::is_directory(fs::path(requested_output_path));
+
+    fs::path final_path;
+    if (treat_as_directory)
+    {
+        fs::path directory = requested_output_path.empty() ? fs::path("../data/output_qasm_file") : fs::path(requested_output_path);
+        if (directory.filename() == ".")
+        {
+            directory = directory.parent_path();
+        }
+        std::error_code ec;
+        fs::create_directories(directory, ec);
+        if (ec)
+        {
+            std::cerr << "Warning: failed to create directory '" << directory << "' (" << ec.message() << ")" << std::endl;
+        }
+        final_path = directory / (mode_prefix(mode) + input_name);
+    }
+    else
+    {
+        final_path = fs::path(requested_output_path);
+        fs::path parent = final_path.parent_path();
+        if (!parent.empty())
+        {
+            std::error_code ec;
+            fs::create_directories(parent, ec);
+            if (ec)
+            {
+                std::cerr << "Warning: failed to create directory '" << parent << "' (" << ec.message() << ")" << std::endl;
+            }
+        }
+    }
+
     IdxType n_qubits = IdxType(circuit->num_qubits());
     std::vector<QASMTrans::Gate> gate_info = circuit->get_gates();
     map<string, creg> cregs = circuit->get_cregs();
-    std::vector<IdxType> initial_mapping = circuit->get_mapping();
-    // std::cout<<"final mapping is"<<std::endl;
-    // for (auto& qubit : initial_mapping) {
-    //     std::cout<<qubit<<std::endl;
-    // }
-    std::stringstream file_name;
     std::map<std::string, IdxType> basis_gate_counts;
-    std::ofstream qasm_file;
-    if (output_path == "../data/output_qasm_file/")
+
+    std::ofstream qasm_file(final_path);
+    if (!qasm_file.is_open())
     {
-        switch (mode)
-        {
-        case 0: // IBMQ
-            file_name << output_path << "transpiled_IBMQ_" << new_file;
-            output_path = output_path + "transpiled_IBMQ_" + new_file;
-            break;
-        case 1: // IonQ
-            file_name << output_path << "transpiled_IonQ_" << new_file;
-            output_path = output_path + "transpiled_IonQ_" + new_file;
-            break;
-        case 2: // Quantinuum
-            file_name << output_path << "transpiled_Quantinuum_" << new_file;
-            output_path = output_path + "transpiled_Quantinuum_" + new_file;
-            break;
-        case 3: // Rigetti
-            file_name << output_path << "transpiled_Rigetti_" << new_file;
-            output_path = output_path + "transpiled_Rigetti_" + new_file;
-            break;
-        case 4: // Quafu
-            file_name << output_path << "transpiled_Quafu_" << new_file;
-            output_path = output_path + "transpiled_Quafu_" + new_file;
-            break;
-        default:
-            std::cerr << "Error: unspecified mode!" << endl;
-            exit(1);
-        }
-        qasm_file.open(file_name.str());
+        std::cerr << "Error: unable to open QASM output file '" << final_path << "'" << std::endl;
+        return final_path.string();
     }
-    else
+
+    qasm_file << "OPENQASM 2.0;\n";
+    qasm_file << "include \"qelib1.inc\";\n";
+    qasm_file << "qreg q[" << n_qubits << "];\n";
+    for (auto &creg : cregs)
     {
-        qasm_file.open(output_path);
+        qasm_file << "creg " << toLowerCase(creg.first) << "[" << creg.second.width << "];\n";
     }
-    // std::cout<<"output path is: "<<filename.str()<<std::endl;
-    if (qasm_file.is_open())
+    for (auto g : gate_info)
     {
-        qasm_file << "OPENQASM 2.0;\n";
-        qasm_file << "include \"qelib1.inc\";\n";
-        qasm_file << "qreg q[" << n_qubits << "];\n";
-        for (auto &creg : cregs)
+        if (std::strcmp(QASMTrans::OP_NAMES[g.op_name], "MA") != 0)
         {
-            qasm_file << "creg " << toLowerCase(creg.first) << "[" << creg.second.width << "];\n";
-        }
-        for (auto g : gate_info)
-        {
-            if (std::strcmp(QASMTrans::OP_NAMES[g.op_name], "MA") != 0)
+            if (!g.gateToString().empty())
             {
-                if (g.gateToString() != "")
-                {
-                    qasm_file << toLowerCase(g.gateToString()) << "; \n";
-                    // add gate name and count to map
-                    std::string gate_name = toLowerCase(QASMTrans::OP_NAMES[g.op_name]);
-                    if (basis_gate_counts.find(gate_name) == basis_gate_counts.end())
-                    {
-                        basis_gate_counts.insert(std::make_pair(gate_name, 1));
-                    }
-                    else
-                    {
-                        basis_gate_counts[gate_name] += 1;
-                    }
-                }
+                qasm_file << toLowerCase(g.gateToString()) << "; \n";
+                std::string gate_name = toLowerCase(QASMTrans::OP_NAMES[g.op_name]);
+                basis_gate_counts[gate_name] += 1;
             }
         }
-        IdxType creg_index = 0;
-        for (auto &creg : cregs)
-        {
-            for (auto &qubit : creg.second.qubit_indices)
-            {
-                qasm_file << "measure q[" << circuit->initial_mapping[creg_index] << "] -> " << toLowerCase(creg.first) << "[" << creg_index << "];\n";
-                ++creg_index;
-            }
-        }
-        // Close the file
-        qasm_file.close();
     }
-    else
+    IdxType creg_index = 0;
+    for (auto &creg : cregs)
     {
-        // std::cerr << "Unable to open file";
+        for (auto &qubit : creg.second.qubit_indices)
+        {
+            qasm_file << "measure q[" << circuit->initial_mapping[creg_index] << "] -> " << toLowerCase(creg.first) << "[" << creg_index << "];\n";
+            ++creg_index;
+        }
     }
+    qasm_file.close();
 
     if (debug_level > 0)
     {
@@ -129,4 +140,6 @@ void dumpQASM(std::shared_ptr<QASMTrans::Circuit> circuit, const char *filename,
         }
         std::cout << std::endl;
     }
+
+    return final_path.string();
 }

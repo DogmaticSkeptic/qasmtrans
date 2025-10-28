@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <map>
 #include <exception>
+#include <optional>
 
 #include "../nlomann/json.hpp"
 #include "graph.hpp"
@@ -37,6 +38,12 @@ namespace QASMTrans
         std::map<std::pair<IdxType, IdxType>, std::unordered_map<std::string, double>> two_qubit_errors;
         std::vector<std::unordered_map<std::string, double>> single_qubit_gate_lengths;
         std::map<std::pair<IdxType, IdxType>, std::unordered_map<std::string, double>> two_qubit_gate_lengths;
+        std::vector<std::optional<double>> t1;
+        std::vector<std::optional<double>> t2;
+        std::vector<std::optional<double>> freq;
+        std::vector<std::optional<double>> readout_length;
+        std::vector<std::optional<double>> prob_meas0_prep1;
+        std::vector<std::optional<double>> prob_meas1_prep0;
     };
 
     vector<vector<IdxType>> floyd(IdxType node_num, vector<vector<IdxType>> &adj_mat)
@@ -142,6 +149,12 @@ namespace QASMTrans
         chip->chip_qubit_num = chip_qubit_num;
         chip->single_qubit_errors.assign(chip->chip_qubit_num, {});
         chip->single_qubit_gate_lengths.assign(chip->chip_qubit_num, {});
+        chip->t1.assign(chip->chip_qubit_num, std::nullopt);
+        chip->t2.assign(chip->chip_qubit_num, std::nullopt);
+        chip->freq.assign(chip->chip_qubit_num, std::nullopt);
+        chip->readout_length.assign(chip->chip_qubit_num, std::nullopt);
+        chip->prob_meas0_prep1.assign(chip->chip_qubit_num, std::nullopt);
+        chip->prob_meas1_prep0.assign(chip->chip_qubit_num, std::nullopt);
 
         if (backend_config.contains("gate_errs"))
         {
@@ -250,6 +263,44 @@ namespace QASMTrans
                 }
             }
         }
+
+        auto parse_qubit_property = [&](const char *key, std::vector<std::optional<double>> &target) {
+            if (!backend_config.contains(key))
+            {
+                return;
+            }
+            const auto &obj = backend_config[key];
+            if (!obj.is_object())
+            {
+                return;
+            }
+            for (auto it = obj.begin(); it != obj.end(); ++it)
+            {
+                if (!it.value().is_number())
+                {
+                    continue;
+                }
+                try
+                {
+                    IdxType qubit = static_cast<IdxType>(std::stoll(it.key()));
+                    if (qubit >= 0 && qubit < chip->chip_qubit_num)
+                    {
+                        target[static_cast<std::size_t>(qubit)] = it.value().get<double>();
+                    }
+                }
+                catch (const std::exception &)
+                {
+                    continue;
+                }
+            }
+        };
+
+        parse_qubit_property("T1", chip->t1);
+        parse_qubit_property("T2", chip->t2);
+        parse_qubit_property("freq", chip->freq);
+        parse_qubit_property("readout_length", chip->readout_length);
+        parse_qubit_property("prob_meas0_prep1", chip->prob_meas0_prep1);
+        parse_qubit_property("prob_meas1_prep0", chip->prob_meas1_prep0);
         return chip;
     }
 

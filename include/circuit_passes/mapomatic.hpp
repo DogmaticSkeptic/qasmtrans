@@ -35,7 +35,7 @@ using json = nlohmann::json;
 enum class CriticalPathHeuristicMode
 {
     LogProduct,
-    AdditiveAverage
+    Hybrid
 };
 
 
@@ -305,13 +305,86 @@ namespace mapomatic_detail
     {
         if (!chip)
         {
-            return mode == CriticalPathHeuristicMode::LogProduct ? 0.0 : -1.0;
+            return 0.0;
         }
 
         constexpr double kMinComponent = 1e-15;
-        double log_fidelity = 0.0;
-        double additive_sum = 0.0;
-        std::size_t processed_gate_count = 0;
+        auto ensure_capacity = [](std::vector<double> &buffer, IdxType index) {
+            if (index < 0)
+            {
+                return;
+            }
+            const auto required = static_cast<std::size_t>(index) + 1;
+            if (required > buffer.size())
+            {
+                buffer.resize(required, 0.0);
+            }
+        };
+
+        const std::size_t initial_capacity = static_cast<std::size_t>(
+            std::max<IdxType>(chip->chip_qubit_num, 0));
+        std::vector<double> active_time(initial_capacity, 0.0);
+
+        auto lookup_two_qubit_error = [&](IdxType phys_ctrl, IdxType phys_tgt, const std::string &name) -> double
+        {
+            auto pair_it = chip->two_qubit_errors.find({phys_ctrl, phys_tgt});
+            if (pair_it == chip->two_qubit_errors.end())
+            {
+                pair_it = chip->two_qubit_errors.find({phys_tgt, phys_ctrl});
+            }
+            if (pair_it != chip->two_qubit_errors.end())
+            {
+                const auto &error_map = pair_it->second;
+                auto err_it = error_map.find(name);
+                if (err_it != error_map.end())
+                {
+                    return std::clamp(err_it->second, 0.0, 1.0);
+                }
+                static const std::array<const char *, 1> kFallbacks = {"cx"};
+                for (const char *fallback : kFallbacks)
+                {
+                    if (!fallback || name == fallback)
+                    {
+                        continue;
+                    }
+                    err_it = error_map.find(fallback);
+                    if (err_it != error_map.end())
+                    {
+                        return std::clamp(err_it->second, 0.0, 1.0);
+                    }
+                }
+            }
+            return 0.0;
+        };
+
+        auto lookup_single_qubit_error = [&](IdxType phys_qubit, const std::string &name) -> double
+        {
+            if (phys_qubit >= 0 && phys_qubit < static_cast<IdxType>(chip->single_qubit_errors.size()))
+            {
+                const auto &error_map = chip->single_qubit_errors[static_cast<std::size_t>(phys_qubit)];
+                auto err_it = error_map.find(name);
+                if (err_it != error_map.end())
+                {
+                    return std::clamp(err_it->second, 0.0, 1.0);
+                }
+                static const std::array<const char *, 3> kFallbacks = {"sx", "x", "id"};
+                for (const char *fallback : kFallbacks)
+                {
+                    if (!fallback || name == fallback)
+                    {
+                        continue;
+                    }
+                    err_it = error_map.find(fallback);
+                    if (err_it != error_map.end())
+                    {
+                        return std::clamp(err_it->second, 0.0, 1.0);
+                    }
+                }
+            }
+            return 0.0;
+        };
+
+        double log_path_fidelity = 0.0;
 
         auto accumulate_gate = [&](const Gate &gate)
         {
@@ -322,94 +395,51 @@ namespace mapomatic_detail
 
             const std::string gate_name = to_lower_copy(OP_NAMES[gate.op_name]);
             double gate_error = 0.0;
+            double gate_duration = 0.0;
 
-            auto consider_two_qubit = [&](IdxType ctrl, IdxType tgt)
-            {
-                const IdxType mapped_ctrl = remap_if_present(ctrl, physical_mapping);
-                const IdxType mapped_tgt = remap_if_present(tgt, physical_mapping);
-
-                auto pair_it = chip->two_qubit_errors.find({mapped_ctrl, mapped_tgt});
-                if (pair_it == chip->two_qubit_errors.end())
-                {
-                    pair_it = chip->two_qubit_errors.find({mapped_tgt, mapped_ctrl});
-                }
-
-                if (pair_it != chip->two_qubit_errors.end())
-                {
-                    const auto &error_map = pair_it->second;
-                    auto err_it = error_map.find(gate_name);
-                    if (err_it != error_map.end())
-                    {
-                        gate_error = std::clamp(err_it->second, 0.0, 1.0);
-                        return;
-                    }
-                    static const std::array<const char *, 1> kTwoFallbacks = {"cx"};
-                    for (const char *fallback : kTwoFallbacks)
-                    {
-                        if (!fallback || gate_name == fallback)
-                        {
-                            continue;
-                        }
-                        err_it = error_map.find(fallback);
-                        if (err_it != error_map.end())
-                        {
-                            gate_error = std::clamp(err_it->second, 0.0, 1.0);
-                            return;
-                        }
-                    }
-                }
-            };
-
-            auto consider_single_qubit = [&](IdxType qubit)
-            {
-                const IdxType mapped_qubit = remap_if_present(qubit, physical_mapping);
-                if (mapped_qubit >= 0 && mapped_qubit < static_cast<IdxType>(chip->single_qubit_errors.size()))
-                {
-                    const auto &error_map = chip->single_qubit_errors[mapped_qubit];
-                    auto err_it = error_map.find(gate_name);
-                    if (err_it != error_map.end())
-                    {
-                        gate_error = std::clamp(err_it->second, 0.0, 1.0);
-                        return;
-                    }
-                    static const std::array<const char *, 3> kSingleFallbacks = {"sx", "x", "id"};
-                    for (const char *fallback : kSingleFallbacks)
-                    {
-                        if (!fallback || gate_name == fallback)
-                        {
-                            continue;
-                        }
-                        err_it = error_map.find(fallback);
-                        if (err_it != error_map.end())
-                        {
-                            gate_error = std::clamp(err_it->second, 0.0, 1.0);
-                            return;
-                        }
-                    }
-                }
-            };
+            Gate remapped = gate;
 
             if (gate.ctrl >= 0 && gate.qubit >= 0)
             {
-                consider_two_qubit(gate.ctrl, gate.qubit);
+                const IdxType mapped_ctrl = remap_if_present(gate.ctrl, physical_mapping);
+                const IdxType mapped_tgt = remap_if_present(gate.qubit, physical_mapping);
+
+                gate_error = lookup_two_qubit_error(mapped_ctrl, mapped_tgt, gate_name);
+
+                remapped.ctrl = mapped_ctrl;
+                remapped.qubit = mapped_tgt;
+                gate_duration = mapomatic_detail::lookup_gate_length(chip, remapped);
+
+                ensure_capacity(active_time, mapped_ctrl);
+                ensure_capacity(active_time, mapped_tgt);
+                active_time[static_cast<std::size_t>(mapped_ctrl)] += gate_duration;
+                active_time[static_cast<std::size_t>(mapped_tgt)] += gate_duration;
             }
             else if (gate.qubit >= 0)
             {
-                consider_single_qubit(gate.qubit);
+                const IdxType mapped_qubit = remap_if_present(gate.qubit, physical_mapping);
+                gate_error = lookup_single_qubit_error(mapped_qubit, gate_name);
+
+                remapped.qubit = mapped_qubit;
+                gate_duration = mapomatic_detail::lookup_gate_length(chip, remapped);
+
+                ensure_capacity(active_time, mapped_qubit);
+                active_time[static_cast<std::size_t>(mapped_qubit)] += gate_duration;
+            }
+            else if (gate.extra >= 0)
+            {
+                const IdxType mapped_extra = remap_if_present(gate.extra, physical_mapping);
+                gate_error = lookup_single_qubit_error(mapped_extra, gate_name);
+
+                remapped.extra = mapped_extra;
+                gate_duration = mapomatic_detail::lookup_gate_length(chip, remapped);
+
+                ensure_capacity(active_time, mapped_extra);
+                active_time[static_cast<std::size_t>(mapped_extra)] += gate_duration;
             }
 
-            double fidelity_component = 1.0 - gate_error;
-            if (mode == CriticalPathHeuristicMode::LogProduct)
-            {
-                fidelity_component = std::max(fidelity_component, kMinComponent);
-                log_fidelity += std::log(fidelity_component);
-            }
-            else
-            {
-                fidelity_component = std::clamp(fidelity_component, 0.0, 1.0);
-                additive_sum += fidelity_component;
-            }
-            ++processed_gate_count;
+            double fidelity_component = std::clamp(1.0 - gate_error, kMinComponent, 1.0);
+            log_path_fidelity += std::log(fidelity_component);
         };
 
         if (!critical_path.empty())
@@ -431,17 +461,92 @@ namespace mapomatic_detail
             }
         }
 
-        if (processed_gate_count == 0)
+        double log_two_qubit_fidelity = 0.0;
+        if (mode == CriticalPathHeuristicMode::Hybrid)
         {
-            return mode == CriticalPathHeuristicMode::LogProduct ? 0.0 : -1.0;
+            for (const auto &gate : gates)
+            {
+                if (strcmp(OP_NAMES[gate.op_name], "MA") == 0)
+                {
+                    continue;
+                }
+                if (gate.ctrl < 0 || gate.qubit < 0)
+                {
+                    continue;
+                }
+                const IdxType mapped_ctrl = remap_if_present(gate.ctrl, physical_mapping);
+                const IdxType mapped_tgt = remap_if_present(gate.qubit, physical_mapping);
+                double gate_error = lookup_two_qubit_error(mapped_ctrl, mapped_tgt, to_lower_copy(OP_NAMES[gate.op_name]));
+                double fidelity_component = std::clamp(1.0 - gate_error, kMinComponent, 1.0);
+                log_two_qubit_fidelity += std::log(fidelity_component);
+            }
         }
-        if (mode == CriticalPathHeuristicMode::LogProduct)
+
+        double log_decoherence_penalty = 0.0;
+        auto accumulate_decoherence = [&](IdxType phys_index, double dwell_time)
         {
-            return -log_fidelity;
+            if (phys_index < 0 || dwell_time <= 0.0)
+            {
+                return;
+            }
+            const std::size_t idx = static_cast<std::size_t>(phys_index);
+            double inv_t1 = 0.0;
+            double inv_t2 = 0.0;
+            if (idx < chip->t1.size())
+            {
+                if (chip->t1[idx].has_value() && chip->t1[idx].value() > 0.0)
+                {
+                    inv_t1 = 1.0 / chip->t1[idx].value();
+                }
+            }
+            if (idx < chip->t2.size())
+            {
+                if (chip->t2[idx].has_value() && chip->t2[idx].value() > 0.0)
+                {
+                    inv_t2 = 1.0 / chip->t2[idx].value();
+                }
+            }
+
+            if (inv_t1 <= 0.0 && inv_t2 <= 0.0)
+            {
+                return;
+            }
+
+            if (inv_t1 > 0.0)
+            {
+                log_decoherence_penalty -= dwell_time * inv_t1;
+            }
+
+            double pure_dephasing = 0.0;
+            if (inv_t2 > 0.0)
+            {
+                if (inv_t1 > 0.0)
+                {
+                    pure_dephasing = std::max(inv_t2 - 0.5 * inv_t1, 0.0);
+                }
+                else
+                {
+                    pure_dephasing = inv_t2;
+                }
+            }
+
+            if (pure_dephasing > 0.0)
+            {
+                log_decoherence_penalty -= dwell_time * pure_dephasing;
+            }
+        };
+
+        for (IdxType phys = 0; phys < static_cast<IdxType>(active_time.size()); ++phys)
+        {
+            accumulate_decoherence(phys, active_time[static_cast<std::size_t>(phys)]);
         }
-        double average = additive_sum / static_cast<double>(processed_gate_count);
-        average = std::clamp(average, 0.0, 1.0);
-        return -average;
+
+        double result_log = log_path_fidelity + log_decoherence_penalty;
+        if (mode == CriticalPathHeuristicMode::Hybrid)
+        {
+            result_log += log_two_qubit_fidelity;
+        }
+        return -result_log;
     }
 }
 
@@ -450,7 +555,8 @@ void calibration_aware_optimization(shared_ptr<Circuit> circuit,
                   shared_ptr<Chip> chip,
                   IdxType debug_level,
                   bool use_full_fidelity,
-                  CriticalPathHeuristicMode cp_mode)
+                  CriticalPathHeuristicMode cp_mode,
+                  std::size_t max_embeddings)
 {
     (void)debug_level;
     if (!circuit || !chip)
@@ -481,7 +587,8 @@ void calibration_aware_optimization(shared_ptr<Circuit> circuit,
         critical_path_latency = 0.0;
     }
     std::vector<IdxType> empty_scoring_path;
-    const std::vector<IdxType> &path_for_scoring = use_full_fidelity ? empty_scoring_path : critical_path_gates;
+    const std::vector<IdxType> &path_for_scoring =
+        (use_full_fidelity || critical_path_gates.empty()) ? empty_scoring_path : critical_path_gates;
     if (gates.empty())
     {
         return;
@@ -564,6 +671,25 @@ void calibration_aware_optimization(shared_ptr<Circuit> circuit,
             add_circuit_edge(gate.qubit, gate.extra);
         }
     }
+    if (circuit_edges.empty() && used_qubits.size() > 1)
+    {
+        for (std::size_t i = 1; i < used_qubits.size(); ++i)
+        {
+            add_circuit_edge(used_qubits[i - 1], used_qubits[i]);
+        }
+    }
+    if (debug_level > 1)
+    {
+        std::cout << "Mapomatic detected " << circuit_edges.size()
+                  << " entangling edge(s) among " << used_qubits.size()
+                  << " logical qubits." << std::endl;
+    }
+
+    const std::size_t kMaxEmbeddings = std::max<std::size_t>(1, max_embeddings);
+    std::vector<std::unordered_map<IdxType, IdxType>> candidate_mappings;
+    candidate_mappings.reserve(kMaxEmbeddings);
+    bool vf2_found_embedding = false;
+    bool identity_fallback_used = false;
 
     lemon::ListGraph chip_graph;
     lemon::ListGraph::NodeMap<IdxType> chip_node_to_qubit(chip_graph);
@@ -601,11 +727,6 @@ void calibration_aware_optimization(shared_ptr<Circuit> circuit,
     lemon::ListGraph::NodeMap<int> circuit_labels(circuit_graph, 0);
     lemon::ListGraph::NodeMap<int> chip_labels(chip_graph, 0);
 
-    constexpr std::size_t kMaxEmbeddings = 128;
-    std::vector<std::unordered_map<IdxType, IdxType>> candidate_mappings;
-    candidate_mappings.reserve(kMaxEmbeddings);
-    bool vf2_found_embedding = false;
-
     lemon::Vf2pp<lemon::ListGraph, lemon::ListGraph,
                  lemon::ListGraph::NodeMap<lemon::ListGraph::Node>,
                  lemon::ListGraph::NodeMap<int>,
@@ -630,7 +751,6 @@ void calibration_aware_optimization(shared_ptr<Circuit> circuit,
         vf2_found_embedding = true;
     }
 
-    bool identity_fallback_used = false;
     if (candidate_mappings.empty())
     {
         std::unordered_map<IdxType, IdxType> identity;
@@ -641,6 +761,44 @@ void calibration_aware_optimization(shared_ptr<Circuit> circuit,
         }
         candidate_mappings.push_back(std::move(identity));
         identity_fallback_used = true;
+    }
+
+    auto ensure_mapping_present = [&](const std::unordered_map<IdxType, IdxType> &mapping) {
+        auto is_duplicate = std::any_of(candidate_mappings.begin(), candidate_mappings.end(),
+                                        [&](const std::unordered_map<IdxType, IdxType> &existing) {
+                                            return existing == mapping;
+                                        });
+        if (!is_duplicate)
+        {
+            candidate_mappings.push_back(mapping);
+        }
+    };
+
+    const std::vector<IdxType> circuit_mapping = circuit->get_mapping();
+    if (!circuit_mapping.empty())
+    {
+        std::unordered_map<IdxType, IdxType> existing_mapping;
+        existing_mapping.reserve(used_qubits.size());
+        bool complete = true;
+        for (IdxType logical : used_qubits)
+        {
+            if (logical < 0 || logical >= static_cast<IdxType>(circuit_mapping.size()))
+            {
+                complete = false;
+                break;
+            }
+            IdxType physical = circuit_mapping[static_cast<std::size_t>(logical)];
+            if (physical < 0)
+            {
+                complete = false;
+                break;
+            }
+            existing_mapping.emplace(logical, physical);
+        }
+        if (complete)
+        {
+            ensure_mapping_present(existing_mapping);
+        }
     }
 
     embedding_time_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - embedding_start).count();
@@ -669,10 +827,8 @@ void calibration_aware_optimization(shared_ptr<Circuit> circuit,
             {
                 std::vector<std::pair<IdxType, IdxType>> mapping_pairs(candidate_mappings[idx].begin(), candidate_mappings[idx].end());
                 std::sort(mapping_pairs.begin(), mapping_pairs.end());
-                double display = (cp_mode == CriticalPathHeuristicMode::LogProduct)
-                                     ? std::clamp(std::exp(-score), 0.0, 1.0)
-                                     : std::clamp(-score, 0.0, 1.0);
-                const char *score_label = (cp_mode == CriticalPathHeuristicMode::LogProduct) ? "log-score" : "avg-score";
+                double display = std::clamp(std::exp(-score), 0.0, 1.0);
+                const char *score_label = "log-score";
                 std::cout << std::scientific << std::setprecision(6);
                 std::cout << "  Candidate " << idx << " " << score_label << ": " << score;
                 std::cout << std::fixed << std::setprecision(6);
@@ -700,18 +856,6 @@ void calibration_aware_optimization(shared_ptr<Circuit> circuit,
     const bool initial_logging = debug_level > 1 && !use_full_fidelity;
     const auto scoring_start = std::chrono::steady_clock::now();
     ScoreSummary summary = evaluate_scores(path_for_scoring, initial_logging);
-    bool forced_full_fidelity = false;
-    if (!use_full_fidelity &&
-        cp_mode == CriticalPathHeuristicMode::LogProduct &&
-        std::abs(summary.worst_score - summary.best_score) < kScoreTolerance)
-    {
-        forced_full_fidelity = true;
-        summary = evaluate_scores(empty_scoring_path, debug_level > 1);
-        if (debug_level > 0)
-        {
-            std::cout << "Critical path scores were identical; falling back to full circuit fidelity for scoring." << std::endl;
-        }
-    }
     scoring_time_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - scoring_start).count();
 
     const auto &best_mapping = candidate_mappings[summary.best_index];
@@ -780,23 +924,19 @@ void calibration_aware_optimization(shared_ptr<Circuit> circuit,
 
     if (debug_level > 0)
     {
-        const bool used_full_circuit = use_full_fidelity || critical_path_gates.empty() || forced_full_fidelity;
+        const bool used_full_circuit = critical_path_gates.empty();
         auto score_to_fidelity = [&](double score) -> double
         {
-            if (cp_mode == CriticalPathHeuristicMode::LogProduct)
+            if (!std::isfinite(score))
             {
-                if (!std::isfinite(score))
-                {
-                    return 0.0;
-                }
-                double fidelity = std::exp(-score);
-                if (!std::isfinite(fidelity))
-                {
-                    return 0.0;
-                }
-                return std::clamp(fidelity, 0.0, 1.0);
+                return 0.0;
             }
-            return std::clamp(-score, 0.0, 1.0);
+            double fidelity = std::exp(-score);
+            if (!std::isfinite(fidelity))
+            {
+                return 0.0;
+            }
+            return std::clamp(fidelity, 0.0, 1.0);
         };
         double best_fidelity = score_to_fidelity(summary.best_score);
         double worst_fidelity = score_to_fidelity(summary.worst_score);
@@ -805,10 +945,10 @@ void calibration_aware_optimization(shared_ptr<Circuit> circuit,
                   << (used_full_circuit ? "(full circuit fidelity)" : "(critical path fidelity)")
                   << ": best " << best_fidelity << ", worst " << worst_fidelity << std::endl;
         double score_gap = summary.worst_score - summary.best_score;
-        const char *spread_label = (cp_mode == CriticalPathHeuristicMode::LogProduct) ? "Log-fidelity spread" : "Average-fidelity spread";
+        const char *spread_label = "Log-fidelity spread";
         std::cout << spread_label << ": " << std::scientific << std::setprecision(3) << score_gap << std::fixed << std::setprecision(6) << std::endl;
         std::cout << "Critical path aggregation: "
-                  << (cp_mode == CriticalPathHeuristicMode::LogProduct ? "log product" : "additive average") << std::endl;
+                  << (cp_mode == CriticalPathHeuristicMode::LogProduct ? "log product" : "hybrid (log product + global two-qubit weighting)") << std::endl;
         std::cout << std::fixed << std::setprecision(3)
                   << "Mapomatic timing (ms): critical-path prep " << critical_path_prep_ms
                   << ", embedding " << embedding_time_ms

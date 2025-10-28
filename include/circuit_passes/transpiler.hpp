@@ -5,6 +5,7 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <iomanip>
 #include <string>
 #include <cstring>
 #include <vector>
@@ -31,7 +32,9 @@ void transpiler(shared_ptr<Circuit> circuit,
                 IdxType debug_level,
                 IdxType mode,
                 bool use_full_fidelity,
-                CriticalPathHeuristicMode cp_mode)
+                CriticalPathHeuristicMode cp_mode,
+                bool disable_mapomatic,
+                std::size_t mapomatic_max_embeddings)
 {
     circuit->set_creg(list_cregs);
     IdxType n_qubits = IdxType(circuit->num_qubits());
@@ -46,13 +49,19 @@ void transpiler(shared_ptr<Circuit> circuit,
     }
 
     //======================================== STEP-1: Initial Gate Decomposition =====================================
+    auto format_ms = [](double ms) {
+        std::ostringstream oss;
+        oss << std::fixed << std::setprecision(6) << ms;
+        return oss.str();
+    };
+
     cpu_timer initial_decompose_timer;
     initial_decompose_timer.start_timer();
     Decompose_three_to_two(circuit);
     initial_decompose_timer.stop_timer();
     double initial_decompose_time = initial_decompose_timer.measure();
     if (debug_level > 0)
-        cout << "STEP-1. Initial gate decomposition time: " << (IdxType)initial_decompose_time << "ms" << endl;
+        cout << "STEP-1. Initial gate decomposition time: " << format_ms(initial_decompose_time) << "ms" << endl;
 
     //======================================== STEP-2: Routing and Mapping ============================================
     cpu_timer routing_timer;
@@ -61,19 +70,27 @@ void transpiler(shared_ptr<Circuit> circuit,
     routing_timer.stop_timer();
     double routing_time = routing_timer.measure();
     if (debug_level > 0)
-        cout << "STEP-2. Routing and mapping time: " << (IdxType)routing_time << "ms" << endl;
+        cout << "STEP-2. Routing and mapping time: " << format_ms(routing_time) << "ms" << endl;
     if (debug_level > 1)
         cout << circuit->to_string() << endl;
     //======================================== STEP-3: Calibration-Aware Optimization =======================================
-    cpu_timer calib_timer;
-    calib_timer.start_timer();
-    calibration_aware_optimization(circuit, chip, debug_level, use_full_fidelity, cp_mode);
-    calib_timer.stop_timer();
-    double calib_time = calib_timer.measure();
-    if (debug_level > 0)
-        cout << "STEP-3. Calibration-aware optimization time: " << (IdxType)calib_time << "ms" << endl;
-    if (debug_level > 1)
-        cout << circuit->to_string() << endl;
+    double calib_time = 0.0;
+    if (!disable_mapomatic)
+    {
+        cpu_timer calib_timer;
+        calib_timer.start_timer();
+        calibration_aware_optimization(circuit, chip, debug_level, use_full_fidelity, cp_mode, mapomatic_max_embeddings);
+        calib_timer.stop_timer();
+        calib_time = calib_timer.measure();
+        if (debug_level > 0)
+            cout << "STEP-3. Calibration-aware optimization time: " << format_ms(calib_time) << "ms" << endl;
+        if (debug_level > 1)
+            cout << circuit->to_string() << endl;
+    }
+    else if (debug_level > 0)
+    {
+        cout << "STEP-3. Calibration-aware optimization skipped (--disable_mapomatic)" << endl;
+    }
     //======================================== STEP-4: Basis Gate Decomposition =======================================
     cpu_timer decompose_timer;
     decompose_timer.start_timer();
@@ -82,7 +99,7 @@ void transpiler(shared_ptr<Circuit> circuit,
     double decompose_time = decompose_timer.measure();
     if (debug_level > 0)
     {
-        cout << "STEP-4. Basis gate decomposition time: " << (IdxType)decompose_time << "ms" << endl;
-        cout << " total QASMTrans time: " << (IdxType)(initial_decompose_time + routing_time + decompose_time) << "ms" << endl;
+        cout << "STEP-4. Basis gate decomposition time: " << format_ms(decompose_time) << "ms" << endl;
+        cout << " total QASMTrans time: " << format_ms(initial_decompose_time + routing_time + decompose_time) << "ms" << endl;
     }
 }

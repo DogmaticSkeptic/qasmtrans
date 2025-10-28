@@ -6,6 +6,12 @@
 #include <stdexcept>
 #include <sstream>
 #include <iomanip>
+#include <filesystem>
+#include <fstream>
+#include <system_error>
+#include <chrono>
+#include <optional>
+#include <array>
 
 #include "../include/QASMTransPrimitives.hpp"
 #include "../include/IR/chip.hpp"
@@ -13,8 +19,493 @@
 #include "../include/parser/qasm_parser.hpp"
 #include "../include/circuit_passes/transpiler.hpp"
 #include "../include/util/chip_partition.hpp"
+#include "../include/nlomann/json.hpp"
 
 using namespace QASMTrans;
+namespace fs = std::filesystem;
+
+namespace
+{
+
+std::vector<IdxType> build_measurement_mapping(const std::map<std::string, creg> &cregs,
+                                               const std::vector<IdxType> &logical_to_physical)
+{
+    std::vector<IdxType> mapping;
+    for (const auto &entry : cregs)
+    {
+        const auto &qubit_indices = entry.second.qubit_indices;
+        for (std::size_t pos = 0; pos < qubit_indices.size(); ++pos)
+        {
+            IdxType logical_index = qubit_indices[pos];
+            IdxType physical = 0;
+            if (logical_index != UN_DEF && logical_index >= 0 &&
+                logical_index < static_cast<IdxType>(logical_to_physical.size()))
+            {
+                physical = logical_to_physical[static_cast<std::size_t>(logical_index)];
+            }
+            else if (!logical_to_physical.empty())
+            {
+                physical = logical_to_physical[pos % logical_to_physical.size()];
+            }
+            mapping.push_back(physical);
+        }
+    }
+    if (mapping.empty())
+    {
+        mapping = logical_to_physical;
+    }
+    return mapping;
+}
+
+std::vector<std::string> basis_gates_for_mode(IdxType mode)
+{
+    switch (mode)
+    {
+    case 0:
+        return {"rz", "sx", "x", "cx"};
+    case 1:
+        return {"rx", "ry", "rz", "rxx"};
+    case 2:
+        return {"rx", "rz", "zz"};
+    case 3:
+        return {"rx", "ry", "cz"};
+    case 4:
+        return {"cz", "rx", "ry", "rz", "h"};
+    default:
+        return {};
+    }
+}
+
+struct GateSummary
+{
+    std::size_t single_qubit = 0;
+    std::size_t two_qubit = 0;
+    std::size_t depth = 0;
+};
+
+GateSummary compute_gate_summary(const std::vector<Gate> &gates, IdxType initial_capacity)
+{
+    GateSummary summary;
+    if (initial_capacity < 0)
+    {
+        initial_capacity = 0;
+    }
+    std::vector<std::size_t> qubit_depth(static_cast<std::size_t>(initial_capacity), 0);
+
+    for (const auto &gate : gates)
+    {
+        switch (gate.op_name)
+        {
+        case OP::M:
+        case OP::MA:
+        case OP::RESET:
+            continue;
+        default:
+            break;
+        }
+
+        std::array<IdxType, 3> raw_indices = {gate.qubit, gate.ctrl, gate.extra};
+        std::vector<std::size_t> involved;
+        involved.reserve(raw_indices.size());
+
+        for (IdxType raw_index : raw_indices)
+        {
+            if (raw_index < 0)
+            {
+                continue;
+            }
+            std::size_t index = static_cast<std::size_t>(raw_index);
+            if (index >= qubit_depth.size())
+            {
+                qubit_depth.resize(index + 1, 0);
+            }
+            if (std::find(involved.begin(), involved.end(), index) == involved.end())
+            {
+                involved.push_back(index);
+            }
+        }
+
+        if (involved.empty())
+        {
+            continue;
+        }
+
+        if (involved.size() == 1)
+        {
+            summary.single_qubit += 1;
+        }
+        else if (involved.size() == 2)
+        {
+            summary.two_qubit += 1;
+        }
+
+        std::size_t gate_depth = 0;
+        for (std::size_t idx : involved)
+        {
+            gate_depth = std::max(gate_depth, qubit_depth[idx]);
+        }
+        gate_depth += 1;
+        for (std::size_t idx : involved)
+        {
+            qubit_depth[idx] = gate_depth;
+        }
+        summary.depth = std::max(summary.depth, gate_depth);
+    }
+
+    return summary;
+}
+
+nlohmann::json build_subchip_json(const std::shared_ptr<Chip> &subchip,
+                                  const std::vector<IdxType> &new_to_old,
+                                  const std::vector<IdxType> &old_to_new,
+                                  const std::vector<IdxType> &local_to_global,
+                                  const std::vector<IdxType> &logical_mapping,
+                                  const std::string &name,
+                                  IdxType mode)
+{
+    using nlohmann::json;
+    json result;
+    result["name"] = name;
+    result["version"] = "generated";
+    result["num_qubits"] = static_cast<IdxType>(new_to_old.size());
+    result["basis_gates"] = basis_gates_for_mode(mode);
+
+    std::vector<std::string> coupling;
+    if (subchip)
+    {
+        for (std::size_t new_src = 0; new_src < new_to_old.size(); ++new_src)
+        {
+            IdxType old_src = new_to_old[new_src];
+            if (old_src < 0 || old_src >= static_cast<IdxType>(subchip->edge_list.size()))
+            {
+                continue;
+            }
+            for (IdxType old_dst : subchip->edge_list[old_src])
+            {
+                if (old_dst < 0 || old_dst >= static_cast<IdxType>(old_to_new.size()))
+                {
+                    continue;
+                }
+                IdxType new_dst = old_to_new[old_dst];
+                if (new_dst >= 0)
+                {
+                    coupling.emplace_back(std::to_string(new_src) + "_" + std::to_string(new_dst));
+                }
+            }
+        }
+    }
+    std::sort(coupling.begin(), coupling.end());
+    coupling.erase(std::unique(coupling.begin(), coupling.end()), coupling.end());
+    result["cx_coupling"] = coupling;
+
+    json gate_errs = json::object();
+    json gate_lens = json::object();
+    if (subchip)
+    {
+        for (std::size_t new_idx = 0; new_idx < new_to_old.size(); ++new_idx)
+        {
+            IdxType old_idx = new_to_old[new_idx];
+            if (old_idx >= 0 && old_idx < static_cast<IdxType>(subchip->single_qubit_errors.size()))
+            {
+                for (const auto &entry : subchip->single_qubit_errors[old_idx])
+                {
+                    gate_errs[entry.first + std::to_string(new_idx)] = entry.second;
+                }
+            }
+            if (old_idx >= 0 && old_idx < static_cast<IdxType>(subchip->single_qubit_gate_lengths.size()))
+            {
+                for (const auto &entry : subchip->single_qubit_gate_lengths[old_idx])
+                {
+                    gate_lens[entry.first + std::to_string(new_idx)] = entry.second;
+                }
+            }
+        }
+        auto append_two_qubit = [&](const auto &source_map, json &dest) {
+            for (const auto &entry : source_map)
+            {
+                IdxType new_ctrl = (entry.first.first >= 0 && entry.first.first < static_cast<IdxType>(old_to_new.size()))
+                                       ? old_to_new[entry.first.first]
+                                       : -1;
+                IdxType new_tgt = (entry.first.second >= 0 && entry.first.second < static_cast<IdxType>(old_to_new.size()))
+                                      ? old_to_new[entry.first.second]
+                                      : -1;
+                if (new_ctrl < 0 || new_tgt < 0)
+                {
+                    continue;
+                }
+                for (const auto &gate_entry : entry.second)
+                {
+                    const double value = gate_entry.second;
+                    const std::string forward_key = gate_entry.first + std::to_string(new_ctrl) + "_" + std::to_string(new_tgt);
+                    dest[forward_key] = value;
+                    if (new_ctrl != new_tgt)
+                    {
+                        const std::string reverse_key = gate_entry.first + std::to_string(new_tgt) + "_" + std::to_string(new_ctrl);
+                        if (!dest.contains(reverse_key))
+                        {
+                            dest[reverse_key] = value;
+                        }
+                    }
+                }
+            }
+        };
+        append_two_qubit(subchip->two_qubit_errors, gate_errs);
+        append_two_qubit(subchip->two_qubit_gate_lengths, gate_lens);
+    }
+    result["gate_errs"] = gate_errs;
+    result["gate_lens"] = gate_lens;
+
+    auto append_optional_property = [&](const std::vector<std::optional<double>> &values,
+                                        const char *key) {
+        if (values.empty())
+        {
+            return;
+        }
+        json prop = json::object();
+        bool any = false;
+        for (std::size_t new_idx = 0; new_idx < new_to_old.size(); ++new_idx)
+        {
+            IdxType old_idx = new_to_old[new_idx];
+            if (old_idx < 0 || old_idx >= static_cast<IdxType>(values.size()))
+            {
+                continue;
+            }
+            const auto &val = values[static_cast<std::size_t>(old_idx)];
+            if (val.has_value())
+            {
+                prop[std::to_string(new_idx)] = *val;
+                any = true;
+            }
+        }
+        if (any)
+        {
+            result[key] = std::move(prop);
+        }
+    };
+    if (subchip)
+    {
+        append_optional_property(subchip->t1, "T1");
+        append_optional_property(subchip->t2, "T2");
+        append_optional_property(subchip->freq, "freq");
+        append_optional_property(subchip->readout_length, "readout_length");
+        append_optional_property(subchip->prob_meas0_prep1, "prob_meas0_prep1");
+        append_optional_property(subchip->prob_meas1_prep0, "prob_meas1_prep0");
+    }
+
+    nlohmann::json local_global = nlohmann::json::array();
+    for (IdxType value : local_to_global)
+    {
+        local_global.push_back(value);
+    }
+    result["local_to_global"] = local_global;
+
+    nlohmann::json logical_local = nlohmann::json::array();
+    for (IdxType value : logical_mapping)
+    {
+        logical_local.push_back(value);
+    }
+    result["logical_to_local"] = logical_local;
+    result["generated_by"] = "qasmtrans";
+
+    return result;
+}
+
+void write_json_file(const nlohmann::json &data, const fs::path &output_path)
+{
+    if (output_path.has_parent_path())
+    {
+        std::error_code ec;
+        fs::create_directories(output_path.parent_path(), ec);
+        if (ec)
+        {
+            std::cerr << "Warning: failed to create directory '" << output_path.parent_path() << "' (" << ec.message() << ")" << std::endl;
+        }
+    }
+    std::ofstream out(output_path);
+    if (!out.is_open())
+    {
+        std::cerr << "Error: unable to open JSON output file '" << output_path << "'" << std::endl;
+        return;
+    }
+    out << data.dump(2);
+    out.close();
+}
+
+struct SubchipArtifact
+{
+    std::size_t index = 0;
+    std::string circuit_prefix;
+    std::string source_filename;
+    std::shared_ptr<Chip> subchip;
+    std::vector<IdxType> local_to_global;
+    std::vector<QASMTrans::Gate> local_gates;
+    std::vector<IdxType> logical_mapping;
+    std::vector<IdxType> measurement_mapping;
+    std::map<std::string, creg> cregs;
+};
+
+struct PrunedSubchipData
+{
+    std::vector<IdxType> new_to_old;
+    std::vector<IdxType> old_to_new;
+    std::vector<QASMTrans::Gate> gates;
+    std::vector<IdxType> logical_mapping;
+    std::vector<IdxType> measurement_mapping;
+    std::vector<IdxType> local_to_global;
+    nlohmann::json device_json;
+};
+
+std::vector<IdxType> collect_used_nodes(const SubchipArtifact &artifact)
+{
+    std::vector<IdxType> used;
+    if (!artifact.subchip)
+    {
+        return used;
+    }
+
+    IdxType local_size = artifact.subchip->chip_qubit_num;
+    if (local_size <= 0)
+    {
+        return used;
+    }
+
+    std::vector<char> mark(static_cast<std::size_t>(local_size), 0);
+    auto mark_idx = [&](IdxType idx)
+    {
+        if (idx >= 0 && idx < local_size)
+        {
+            mark[static_cast<std::size_t>(idx)] = 1;
+        }
+    };
+
+    for (const auto &gate : artifact.local_gates)
+    {
+        mark_idx(gate.qubit);
+        mark_idx(gate.ctrl);
+        mark_idx(gate.extra);
+    }
+    for (IdxType value : artifact.logical_mapping)
+    {
+        mark_idx(value);
+    }
+    for (IdxType value : artifact.measurement_mapping)
+    {
+        mark_idx(value);
+    }
+
+    for (IdxType idx = 0; idx < local_size; ++idx)
+    {
+        if (mark[static_cast<std::size_t>(idx)])
+        {
+            used.push_back(idx);
+        }
+    }
+    return used;
+}
+
+PrunedSubchipData prune_subchip_artifact(const SubchipArtifact &artifact,
+                                         const std::string &subchip_name,
+                                         IdxType mode)
+{
+    PrunedSubchipData result;
+
+    if (!artifact.subchip)
+    {
+        result.device_json = build_subchip_json(nullptr, result.new_to_old, result.old_to_new,
+                                                result.local_to_global, result.logical_mapping,
+                                                subchip_name, mode);
+        return result;
+    }
+
+    auto used_nodes = collect_used_nodes(artifact);
+    if (used_nodes.empty())
+    {
+        used_nodes.reserve(static_cast<std::size_t>(artifact.subchip->chip_qubit_num));
+        for (IdxType idx = 0; idx < artifact.subchip->chip_qubit_num; ++idx)
+        {
+            used_nodes.push_back(idx);
+        }
+    }
+
+    std::sort(used_nodes.begin(), used_nodes.end());
+    used_nodes.erase(std::unique(used_nodes.begin(), used_nodes.end()), used_nodes.end());
+
+    result.new_to_old = used_nodes;
+    result.old_to_new.assign(static_cast<std::size_t>(artifact.subchip->chip_qubit_num), -1);
+    result.local_to_global.reserve(used_nodes.size());
+    for (std::size_t new_idx = 0; new_idx < used_nodes.size(); ++new_idx)
+    {
+        IdxType old_idx = used_nodes[new_idx];
+        if (old_idx >= 0 && old_idx < static_cast<IdxType>(result.old_to_new.size()))
+        {
+            result.old_to_new[static_cast<std::size_t>(old_idx)] = static_cast<IdxType>(new_idx);
+        }
+        if (old_idx >= 0 && old_idx < static_cast<IdxType>(artifact.local_to_global.size()))
+        {
+            result.local_to_global.push_back(artifact.local_to_global[static_cast<std::size_t>(old_idx)]);
+        }
+        else
+        {
+            result.local_to_global.push_back(old_idx);
+        }
+    }
+
+    result.gates.reserve(artifact.local_gates.size());
+    for (const auto &gate : artifact.local_gates)
+    {
+        Gate adjusted = gate;
+        if (adjusted.qubit >= 0 && adjusted.qubit < static_cast<IdxType>(result.old_to_new.size()))
+        {
+            adjusted.qubit = result.old_to_new[static_cast<std::size_t>(adjusted.qubit)];
+        }
+        if (adjusted.ctrl >= 0 && adjusted.ctrl < static_cast<IdxType>(result.old_to_new.size()))
+        {
+            adjusted.ctrl = result.old_to_new[static_cast<std::size_t>(adjusted.ctrl)];
+        }
+        if (adjusted.extra >= 0 && adjusted.extra < static_cast<IdxType>(result.old_to_new.size()))
+        {
+            adjusted.extra = result.old_to_new[static_cast<std::size_t>(adjusted.extra)];
+        }
+        result.gates.push_back(adjusted);
+    }
+
+    result.logical_mapping = artifact.logical_mapping;
+    for (auto &value : result.logical_mapping)
+    {
+        if (value >= 0 && value < static_cast<IdxType>(result.old_to_new.size()))
+        {
+            value = result.old_to_new[static_cast<std::size_t>(value)];
+        }
+        else
+        {
+            value = -1;
+        }
+    }
+
+    result.measurement_mapping = artifact.measurement_mapping;
+    for (auto &value : result.measurement_mapping)
+    {
+        if (value >= 0 && value < static_cast<IdxType>(result.old_to_new.size()))
+        {
+            value = result.old_to_new[static_cast<std::size_t>(value)];
+        }
+        else
+        {
+            value = -1;
+        }
+    }
+
+    result.device_json = build_subchip_json(artifact.subchip,
+                                            result.new_to_old,
+                                            result.old_to_new,
+                                            result.local_to_global,
+                                            result.logical_mapping,
+                                            subchip_name,
+                                            mode);
+    return result;
+}
+
+} // namespace
 
 void print_help()
 {
@@ -29,8 +520,10 @@ void print_help()
     std::cout << "-backend_list     Print the available device backends" << std::endl;
     std::cout << "-m <name>         Set the transpiler targeted device, default is ibmq" << std::endl;
     std::cout << "-v <0/1/2>        Set the output level, default is 0" << std::endl;
-    std::cout << "-full_fidelity    Use full-circuit fidelity heuristic instead of critical-path mode" << std::endl;
-    std::cout << "-cp_mode <product|additive>  Choose critical-path aggregation strategy (default additive)" << std::endl;
+    std::cout << "-full_fidelity    Score Mapomatic candidates on the entire circuit instead of its critical path" << std::endl;
+    std::cout << "-cp_mode <product|hybrid>  Choose scoring strategy (default product)" << std::endl;
+    std::cout << "-mapomatic_limit <N>       Limit the number of candidate embeddings Mapomatic evaluates (default 1000)" << std::endl;
+    std::cout << "--disable_mapomatic       Skip the calibration-aware Mapomatic pass" << std::endl;
     std::cout << "-o <path>         Set the output file, "
         << "default is data/output/transpiled_modename_filename.qasm" << std::endl;
     std::cout << "-h                print the help function" << std::endl;
@@ -45,8 +538,10 @@ int main(int argc, char **argv)
     std::string output_path = "../data/output/";
     std::string backendpath;
     std::vector<std::string> input_files;
+    bool disable_mapomatic = false;
     bool use_full_fidelity = false;
-    CriticalPathHeuristicMode cp_mode = CriticalPathHeuristicMode::AdditiveAverage;
+    CriticalPathHeuristicMode cp_mode = CriticalPathHeuristicMode::LogProduct;
+    std::size_t mapomatic_limit = 1000;
     std::map<std::string, IdxType> machineQubits = {
         {"ibmq_toronto", 27},
         {"ibmq_jakarta", 7},
@@ -79,10 +574,6 @@ int main(int argc, char **argv)
         {
             run_with_limit = true;
         }
-        if (cmdOptionExists(argv, argv + argc, "-full_fidelity"))
-        {
-            use_full_fidelity = true;
-        }
         if (cmdOptionExists(argv, argv + argc, "-cp_mode"))
         {
             std::string cp_mode_value = std::string(getCmdOption(argv, argv + argc, "-cp_mode"));
@@ -94,14 +585,38 @@ int main(int argc, char **argv)
             {
                 cp_mode = CriticalPathHeuristicMode::LogProduct;
             }
-            else if (lowered == "additive" || lowered == "sum" || lowered == "average" || lowered == "avg")
+            else if (lowered == "hybrid")
             {
-                cp_mode = CriticalPathHeuristicMode::AdditiveAverage;
+                cp_mode = CriticalPathHeuristicMode::Hybrid;
             }
             else
             {
                 std::cerr << "Error: unknown -cp_mode value '" << cp_mode_value
-                          << "'. Expected 'product' or 'additive'." << std::endl;
+                          << "'. Expected 'product' or 'hybrid'." << std::endl;
+                return 1;
+            }
+        }
+        if (cmdOptionExists(argv, argv + argc, "-mapomatic_limit"))
+        {
+            const char *opt = getCmdOption(argv, argv + argc, "-mapomatic_limit");
+            if (!opt)
+            {
+                std::cerr << "Error: -mapomatic_limit requires a positive integer argument." << std::endl;
+                return 1;
+            }
+            try
+            {
+                long long parsed = std::stoll(opt);
+                if (parsed <= 0)
+                {
+                    std::cerr << "Error: -mapomatic_limit must be greater than zero (got " << parsed << ")." << std::endl;
+                    return 1;
+                }
+                mapomatic_limit = static_cast<std::size_t>(parsed);
+            }
+            catch (const std::exception &)
+            {
+                std::cerr << "Error: failed to parse -mapomatic_limit argument '" << opt << "'." << std::endl;
                 return 1;
             }
         }
@@ -109,28 +624,36 @@ int main(int argc, char **argv)
         {
             debug_level = IdxType(std::stoi(getCmdOption(argv, argv + argc, "-v")));
         }
+        if (cmdOptionExists(argv, argv + argc, "-full_fidelity"))
+        {
+            use_full_fidelity = true;
+        }
         if (cmdOptionExists(argv, argv + argc, "-o"))
         {
             output_path = std::string(getCmdOption(argv, argv + argc, "-o"));
         }
-        for (int argi = 1; argi < argc; ++argi)
+        int argi = 1;
+        while (argi < argc)
         {
             std::string current = argv[argi];
             if (current == "-i")
             {
-                int next = argi + 1;
-                if (next >= argc || argv[next][0] == '-')
+                if (argi + 1 >= argc)
                 {
                     std::cerr << "Error: -i requires a following QASM file path." << std::endl;
                     return 1;
                 }
-                while (next < argc && argv[next][0] != '-')
-                {
-                    input_files.emplace_back(argv[next]);
-                    ++next;
-                }
-                argi = next - 1;
+                input_files.emplace_back(argv[argi + 1]);
+                argi += 2;
+                continue;
             }
+            if (current == "--disable_mapomatic")
+            {
+                disable_mapomatic = true;
+                ++argi;
+                continue;
+            }
+            ++argi;
         }
         if (cmdOptionExists(argv, argv + argc, "-c"))
         {
@@ -242,6 +765,8 @@ int main(int argc, char **argv)
             return 1;
         }
 
+        auto overall_start = std::chrono::steady_clock::now();
+
         std::vector<IdxType> partition_sizes = circuit_sizes;
         if (!partition_sizes.empty())
         {
@@ -324,21 +849,58 @@ int main(int argc, char **argv)
         }
 
         std::vector<std::vector<IdxType>> partitions;
+        auto partition_start = std::chrono::steady_clock::now();
+        bool partition_success = false;
         try
         {
             partitions = partition_chip(chip, partition_sizes);
+            partition_success = true;
         }
         catch (const std::exception &ex)
         {
-            std::cerr << "Error during device partitioning: " << ex.what() << std::endl;
-            return 1;
+            std::cerr << "Warning: advanced partitioning failed (" << ex.what()
+                      << "), falling back to contiguous allocation." << std::endl;
+            partitions.clear();
+            partitions.reserve(partition_sizes.size());
+            IdxType next_qubit = 0;
+            bool fallback_ok = true;
+            for (IdxType requested : partition_sizes)
+            {
+                std::vector<IdxType> part;
+                part.reserve(static_cast<std::size_t>(requested));
+                for (IdxType offset = 0; offset < requested; ++offset)
+                {
+                    if (next_qubit >= chip->chip_qubit_num)
+                    {
+                        fallback_ok = false;
+                        break;
+                    }
+                    part.push_back(next_qubit++);
+                }
+                if (static_cast<IdxType>(part.size()) != requested)
+                {
+                    fallback_ok = false;
+                    break;
+                }
+                partitions.push_back(std::move(part));
+            }
+            if (!fallback_ok || partitions.size() != partition_sizes.size())
+            {
+                std::cerr << "Error: contiguous fallback partitioning failed." << std::endl;
+                return 1;
+            }
         }
+        auto partition_end = std::chrono::steady_clock::now();
+        auto partition_ms = std::chrono::duration_cast<std::chrono::milliseconds>(partition_end - partition_start).count();
+        std::cout << "[timing] partition_ms=" << partition_ms << std::endl;
 
         std::vector<Gate> combined_gates;
         combined_gates.reserve(1024);
         std::vector<IdxType> combined_mapping;
         combined_mapping.reserve(total_requested_qubits);
         std::map<std::string, creg> combined_cregs;
+        std::vector<SubchipArtifact> subchip_artifacts;
+        subchip_artifacts.reserve(circuits.size());
 
         try
         {
@@ -369,9 +931,23 @@ int main(int argc, char **argv)
                 }
             }
 
-            transpiler(circuit, subchip, cregs, debug_level, mode, use_full_fidelity, cp_mode);
+            transpiler(circuit, subchip, cregs, debug_level, mode, use_full_fidelity, cp_mode, disable_mapomatic, mapomatic_limit);
 
             std::vector<IdxType> local_mapping = circuit->get_mapping();
+            std::vector<IdxType> local_measurement = build_measurement_mapping(cregs, local_mapping);
+            std::vector<QASMTrans::Gate> local_gates = circuit->get_gates();
+
+            SubchipArtifact artifact;
+            artifact.index = ci;
+            artifact.source_filename = input_files[ci];
+            artifact.subchip = subchip;
+            artifact.local_to_global = local_to_global;
+            artifact.local_gates = local_gates;
+            artifact.logical_mapping = local_mapping;
+            artifact.measurement_mapping = local_measurement;
+            artifact.cregs = cregs;
+            subchip_artifacts.push_back(std::move(artifact));
+
             std::size_t classical_bits = 0;
             for (const auto &entry : cregs)
             {
@@ -401,6 +977,7 @@ int main(int argc, char **argv)
             }
 
             circuit->set_mapping(global_mapping);
+            std::vector<IdxType> global_measurement = build_measurement_mapping(cregs, global_mapping);
 
             if (debug_level > 1)
             {
@@ -432,40 +1009,24 @@ int main(int argc, char **argv)
 
             combined_gates.insert(combined_gates.end(), gates.begin(), gates.end());
 
-            std::vector<IdxType> measurement_mapping;
-            for (const auto &entry : cregs)
+            if (global_measurement.empty())
             {
-                const auto &qubit_indices = entry.second.qubit_indices;
-                for (std::size_t pos = 0; pos < qubit_indices.size(); ++pos)
-                {
-                    IdxType logical_index = qubit_indices[pos];
-                    IdxType physical = 0;
-                    if (logical_index != UN_DEF && logical_index >= 0 &&
-                        logical_index < static_cast<IdxType>(global_mapping.size()))
-                    {
-                        physical = global_mapping[static_cast<std::size_t>(logical_index)];
-                    }
-                    else if (!global_mapping.empty())
-                    {
-                        physical = global_mapping[pos % global_mapping.size()];
-                    }
-                    measurement_mapping.push_back(physical);
-                }
+                global_measurement = global_mapping;
             }
-            if (measurement_mapping.empty())
-            {
-                measurement_mapping = global_mapping;
-            }
-            combined_mapping.insert(combined_mapping.end(), measurement_mapping.begin(), measurement_mapping.end());
+            combined_mapping.insert(combined_mapping.end(), global_measurement.begin(), global_measurement.end());
 
             std::ostringstream prefix_builder;
             prefix_builder << "circuit" << std::setw(2) << std::setfill('0') << ci << "_";
             const std::string prefix = prefix_builder.str();
+            if (!subchip_artifacts.empty())
+            {
+                subchip_artifacts.back().circuit_prefix = prefix;
+            }
 
-                for (const auto &entry : cregs)
-                {
-                    creg renamed = entry.second;
-                    renamed.name = prefix + entry.first;
+            for (const auto &entry : cregs)
+            {
+                creg renamed = entry.second;
+                renamed.name = prefix + entry.first;
                     combined_cregs.emplace(renamed.name, renamed);
                 }
             }
@@ -480,6 +1041,7 @@ int main(int argc, char **argv)
         combined_circuit->set_gates(combined_gates);
         combined_circuit->set_creg(combined_cregs);
         combined_circuit->set_mapping(combined_mapping);
+        std::string requested_output_path = output_path;
 
         if (debug_level > 0)
         {
@@ -491,11 +1053,63 @@ int main(int argc, char **argv)
             cout << "Limit mode: " << (run_with_limit ? "True" : "False") << endl;
         }
 
-        dumpQASM(combined_circuit, input_files.front().c_str(), output_path, debug_level, mode);
-        cout << "Saving output qasm to: " << output_path << endl;
+        if (debug_level > 0)
+        {
+            const auto summary = compute_gate_summary(combined_gates, combined_circuit->num_qubits());
+            std::cout << "[metrics] one_qubit_gates=" << summary.single_qubit
+                      << " two_qubit_gates=" << summary.two_qubit
+                      << " depth=" << summary.depth << std::endl;
+        }
+
+        std::string final_output_qasm = dumpQASM(combined_circuit, input_files.front().c_str(), requested_output_path, debug_level, mode);
+        output_path = final_output_qasm;
+        cout << "Saving output qasm to: " << final_output_qasm << endl;
+
+        fs::path final_output_path(final_output_qasm);
+        fs::path base_output_dir = final_output_path.has_parent_path() ? final_output_path.parent_path() : fs::current_path();
+        std::string subchip_dir_name = final_output_path.stem().string() + "_subchips";
+        fs::path subchip_dir = base_output_dir / subchip_dir_name;
+        std::error_code subchip_ec;
+        fs::create_directories(subchip_dir, subchip_ec);
+        if (subchip_ec)
+        {
+            std::cerr << "Warning: failed to create subchip directory '" << subchip_dir << "' (" << subchip_ec.message() << ")" << std::endl;
+        }
+
+        for (const auto &artifact : subchip_artifacts)
+        {
+            std::string cleaned_prefix = artifact.circuit_prefix;
+            if (!cleaned_prefix.empty() && cleaned_prefix.back() == '_')
+            {
+                cleaned_prefix.pop_back();
+            }
+            std::string subchip_name = cleaned_prefix.empty() ? "subchip" : cleaned_prefix + "_subchip";
+            fs::path json_path = subchip_dir / (subchip_name + ".json");
+            fs::path qasm_path = subchip_dir / (subchip_name + ".qasm");
+
+            auto pruned = prune_subchip_artifact(artifact, subchip_name, mode);
+            write_json_file(pruned.device_json, json_path);
+
+            auto subchip_circuit = std::make_shared<Circuit>(static_cast<IdxType>(pruned.new_to_old.size()));
+            subchip_circuit->set_gates(pruned.gates);
+            if (!pruned.measurement_mapping.empty())
+            {
+                subchip_circuit->set_mapping(pruned.measurement_mapping);
+            }
+            else
+            {
+                subchip_circuit->set_mapping(pruned.logical_mapping);
+            }
+            subchip_circuit->set_creg(artifact.cregs);
+            dumpQASM(subchip_circuit, artifact.source_filename.c_str(), qasm_path.string(), debug_level > 1 ? debug_level : 0, mode);
+        }
+
+        auto overall_end = std::chrono::steady_clock::now();
+        auto total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(overall_end - overall_start).count();
+        std::cout << "[timing] total_ms=" << total_ms << std::endl;
         return 0;
     }
     std::cout << "Invalid Commend Line, Please Check" << std::endl;
     print_help();
-    return 0;
-}
+        return 0;
+    }
