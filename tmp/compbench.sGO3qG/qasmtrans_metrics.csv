@@ -1,5 +1,0 @@
-circuit,time_ms,one_qubit_gates,two_qubit_gates,depth,backend
-square_root_n18_basis.qasm,22,2754,2884,3104,ibmq_toronto
-vqe_uccsd_n8.qasm,69,24136,6172,14056,ibmq_toronto
-sat_n11.qasm,7,823,630,851,ibmq_toronto
-bwt_n21.qasm,,,,,

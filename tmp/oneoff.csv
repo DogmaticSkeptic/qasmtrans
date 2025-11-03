@@ -1,4 +1,0 @@
-circuit,optimization_level,time_ms,depth,one_qubit_gates,two_qubit_gates,backend,backend_num_qubits,circuit_qubits,circuit_clbits
-100.qasm,1,5421.521,41927,559298,100857,ibm_brisbane,127,100,100
-100.qasm,2,7141.195,31294,364977,97749,ibm_brisbane,127,100,100
-100.qasm,3,9938.322,31547,365186,97460,ibm_brisbane,127,100,100
