@@ -47,7 +47,7 @@ string DEFAULT_GATES[] = {
     "RX", "RY", "RZ",
     "CZ", "CX", "CY", "CH",
     "CCX", "CRX", "CRY", "CRZ", "CU1", "CU3",
-    "RESET", "SWAP", "CSWAP",
+    "RESET", "SWAP", "ISWAP", "CSWAP",
     "ID", "RI", "P", "CS", "CSDG", "CT", "CTDG", "CSX", "CP",
     "RZZ", "RXX", "RYY", "RCCX"};
 

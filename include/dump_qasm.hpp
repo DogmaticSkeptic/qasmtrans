@@ -114,7 +114,7 @@ std::string dumpQASM(std::shared_ptr<QASMTrans::Circuit> circuit, const char *fi
             if (!g.gateToString().empty())
             {
                 qasm_file << toLowerCase(g.gateToString()) << "; \n";
-                std::string gate_name = toLowerCase(QASMTrans::OP_NAMES[g.op_name]);
+                std::string gate_name = toLowerCase(g.name());
                 basis_gate_counts[gate_name] += 1;
             }
         }

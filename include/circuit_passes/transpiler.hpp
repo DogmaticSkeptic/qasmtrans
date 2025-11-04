@@ -10,6 +10,7 @@
 #include <cstring>
 #include <vector>
 #include <bitset>
+#include <cctype>
 
 #include "../QASMTransPrimitives.hpp"
 
@@ -25,6 +26,56 @@
 
 using namespace QASMTrans;
 using namespace std;
+
+inline std::string logical_label_for_gate(const Gate &gate)
+{
+    std::string name = OP_NAMES[gate.op_name];
+    std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c)
+                   { return static_cast<char>(std::tolower(c)); });
+    std::ostringstream oss;
+    oss << name;
+    auto append_param = [&](const char *key, ValType value)
+    {
+        if (value != 0.0)
+        {
+            oss << "[" << key << "=" << std::setprecision(10) << value << "]";
+        }
+    };
+    switch (gate.op_name)
+    {
+    case OP::RX:
+    case OP::RY:
+    case OP::RZ:
+    case OP::RI:
+    case OP::P:
+    case OP::CRX:
+    case OP::CRY:
+    case OP::CRZ:
+    case OP::CP:
+    case OP::U:
+    case OP::CU:
+    case OP::RXX:
+    case OP::RYY:
+    case OP::RZZ:
+        append_param("theta", gate.theta);
+        append_param("phi", gate.phi);
+        append_param("lambda", gate.lam);
+        append_param("gamma", gate.gamma);
+        break;
+    default:
+        break;
+    }
+    return oss.str();
+}
+
+inline void annotate_logical_gates(std::vector<Gate> &gates)
+{
+    IdxType next_id = 0;
+    for (auto &gate : gates)
+    {
+        gate.set_logical_metadata(next_id++, logical_label_for_gate(gate));
+    }
+}
 
 void transpiler(shared_ptr<Circuit> circuit,
                 shared_ptr<Chip> chip,
@@ -60,6 +111,11 @@ void transpiler(shared_ptr<Circuit> circuit,
     Decompose_three_to_two(circuit);
     initial_decompose_timer.stop_timer();
     double initial_decompose_time = initial_decompose_timer.measure();
+    {
+        std::vector<Gate> logical_stage_gates = circuit->get_gates();
+        annotate_logical_gates(logical_stage_gates);
+        circuit->set_gates(logical_stage_gates);
+    }
     if (debug_level > 0)
         cout << "STEP-1. Initial gate decomposition time: " << format_ms(initial_decompose_time) << "ms" << endl;
 

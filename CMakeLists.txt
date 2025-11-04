@@ -1,5 +1,5 @@
 # Specify the minimum version for CMake
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.20)
 
 # Setup cc/CC
 if(DEFINED ENV{cc} AND DEFINED ENV{CC})
@@ -20,13 +20,28 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 # Set the -O3 optimization flag for all configurations
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
 
+# Set pybind environment stuff when CONDA_PREFIX is available
+if(DEFINED ENV{CONDA_PREFIX} AND NOT "$ENV{CONDA_PREFIX}" STREQUAL "")
+    set(Python3_EXECUTABLE "$ENV{CONDA_PREFIX}/bin/python" CACHE FILEPATH "" FORCE)
+    set(Python3_ROOT_DIR "$ENV{CONDA_PREFIX}" CACHE PATH "" FORCE)
+    set(pybind11_DIR "$ENV{CONDA_PREFIX}/share/cmake/pybind11" CACHE PATH "" FORCE)
+    list(APPEND CMAKE_PREFIX_PATH "$ENV{CONDA_PREFIX}")
+endif()
+
+find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+find_package(pybind11 CONFIG REQUIRED)
+
 # Add executable
-add_executable(QASMTrans src/qasmtrans.cpp)
+add_executable(QASMTrans
+    src/qasmtrans.cpp
+    src/qick_emitter.cpp
+)
 
 # Make the project's headers and the Lemon headers visible to the target
 target_include_directories(QASMTrans
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 )
 
 # Search Lemon headers after the standard library so they don't shadow libc++ <math.h>
@@ -35,3 +50,6 @@ target_compile_options(QASMTrans
         "-iquote${CMAKE_CURRENT_SOURCE_DIR}/../lemon"
         "-idirafter${CMAKE_CURRENT_SOURCE_DIR}/.."
 )
+
+# Link pybind
+target_link_libraries(QASMTrans PRIVATE pybind11::embed Python3::Python)

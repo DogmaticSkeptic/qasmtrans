@@ -3,8 +3,60 @@
 #include "../QASMTransPrimitives.hpp"
 #include "../IR/gate.hpp"
 
+#include <algorithm>
+#include <vector>
+#include <unordered_map>
+#include <unordered_set>
+#include <string>
+#include <sstream>
+
 using namespace QASMTrans;
 using namespace std;
+
+namespace QASMTrans
+{
+    extern std::unordered_set<std::string> g_device_basis_gates;
+extern std::unordered_map<std::string, std::string> g_merged_gate_aliases;
+}
+
+inline std::string toLowerCase(const char *name)
+{
+    std::string lower = name ? std::string(name) : std::string{};
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c)
+                   { return static_cast<char>(std::tolower(c)); });
+    return lower;
+}
+
+inline std::string lookupMergedAlias(const Gate &gate)
+{
+    if (g_merged_gate_aliases.empty())
+    {
+        return {};
+    }
+    std::vector<std::string> logical_candidates;
+    logical_candidates.push_back(gate.lower_base_name());
+    logical_candidates.push_back(gate.lower_name());
+    if (!gate.logical_label.empty())
+    {
+        std::string label = gate.logical_label;
+        std::transform(label.begin(), label.end(), label.begin(), [](unsigned char c)
+                       { return static_cast<char>(std::tolower(c)); });
+        logical_candidates.push_back(std::move(label));
+    }
+    for (const auto &candidate : logical_candidates)
+    {
+        if (candidate.empty())
+        {
+            continue;
+        }
+        auto it = g_merged_gate_aliases.find(candidate);
+        if (it != g_merged_gate_aliases.end())
+        {
+            return it->second;
+        }
+    }
+    return {};
+}
 
 Gate BasicRZ(ValType theta, IdxType qubit)
 {
@@ -426,6 +478,12 @@ void Decompose_three_to_two(shared_ptr<Circuit> circuit)
     vector<Gate> decomposedGates;
     for (Gate g : circuit_gates)
     {
+        std::string gate_name_lower = g.lower_name();
+        if (g_device_basis_gates.find(gate_name_lower) != g_device_basis_gates.end())
+        {
+            decomposedGates.push_back(g);
+            continue;
+        }
         if (g.n_qubits > 2)
         {
             // std::cout<<"find three-qubit gates"<<std::endl;
@@ -434,17 +492,17 @@ void Decompose_three_to_two(shared_ptr<Circuit> circuit)
             // std::cout<<"gate control is"<<g.ctrl;
             // std::cout<<"gate target is"<<g.qubit;
             // std::cout<<"gate extra is"<<g.extra<<std::endl;
-            if (strcmp(OP_NAMES[g.op_name], "CSWAP") == 0)
+            if (g.name_equals("CSWAP"))
             {
                 vector<Gate> Decomposed_gates = decomposeCSWAP(g.qubit, g.ctrl, g.extra);
                 decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
             }
-            else if (strcmp(OP_NAMES[g.op_name], "CCX") == 0)
+            else if (g.name_equals("CCX"))
             {
                 vector<Gate> Decomposed_gates = decomposeCCX(g.qubit, g.ctrl, g.extra);
                 decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
             }
-            else if (strcmp(OP_NAMES[g.op_name], "RCCX") == 0)
+            else if (g.name_equals("RCCX"))
             {
                 vector<Gate> Decomposed_gates = decomposeRCCX(g.qubit, g.ctrl, g.extra);
                 decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
@@ -480,186 +538,220 @@ void Decompose(shared_ptr<Circuit> circuit, IdxType mode)
     vector<Gate> decomposedGates;
     for (Gate g : circuit_gates)
     {
-        if (strcmp(OP_NAMES[g.op_name], "H") == 0)
+        auto append_with_metadata = [&](const std::vector<Gate> &src)
+        {
+            size_t local_before = decomposedGates.size();
+            decomposedGates.insert(decomposedGates.end(), src.begin(), src.end());
+            size_t after = decomposedGates.size();
+            for (size_t idx = local_before; idx < after; ++idx)
+            {
+                decomposedGates[idx].inherit_logical_metadata(g);
+            }
+        };
+        auto push_with_metadata = [&](Gate gate)
+        {
+            gate.inherit_logical_metadata(g);
+            decomposedGates.push_back(gate);
+        };
+        std::string alias = lookupMergedAlias(g);
+        if (!alias.empty())
+        {
+            g.set_custom_name(alias);
+            push_with_metadata(g);
+            continue;
+        }
+        std::string gate_name_lower = g.lower_name();
+        if (g_device_basis_gates.find(gate_name_lower) != g_device_basis_gates.end())
+        {
+            push_with_metadata(g);
+            continue;
+        }
+        size_t before_size = decomposedGates.size();
+        if (g.name_equals("H"))
         {
             vector<Gate> Decomposed_gates = decomposeHadamard(g.qubit);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "T") == 0)
+        else if (g.name_equals("T"))
         {
             vector<Gate> Decomposed_gates = decomposeT(g.qubit);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "Z") == 0)
+        else if (g.name_equals("Z"))
         {
             vector<Gate> Decomposed_gates = decomposeZ(g.qubit);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "TDG") == 0)
+        else if (g.name_equals("TDG"))
         {
             vector<Gate> Decomposed_gates = decomposeTdg(g.qubit);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "Y") == 0)
+        else if (g.name_equals("Y"))
         {
             vector<Gate> Decomposed_gates = decomposeY(g.qubit);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "S") == 0)
+        else if (g.name_equals("S"))
         {
             vector<Gate> Decomposed_gates = decomposeS(g.qubit);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "SDG") == 0)
+        else if (g.name_equals("SDG"))
         {
             vector<Gate> Decomposed_gates = decomposeSdg(g.qubit);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "RX") == 0)
+        else if (g.name_equals("RX"))
         {
             vector<Gate> Decomposed_gates = decomposeRx(g.theta, g.qubit);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "RY") == 0)
+        else if (g.name_equals("RY"))
         {
             vector<Gate> Decomposed_gates = decomposeRy(g.theta, g.qubit);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
 
         } //^ double check RI gate later
-        else if (strcmp(OP_NAMES[g.op_name], "RI") == 0)
+        else if (g.name_equals("RI"))
         {
             vector<Gate> Decomposed_gates = decomposeRI(g.theta, g.qubit);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "P") == 0)
+        else if (g.name_equals("P"))
         {
             vector<Gate> Decomposed_gates = decomposeP(g.theta, g.qubit);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "U") == 0)
+        else if (g.name_equals("U"))
         {
             vector<Gate> Decomposed_gates = decomposeU(g.theta, g.phi, g.lam, g.qubit);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "CZ") == 0)
+        else if (g.name_equals("CZ"))
         {
             vector<Gate> Decomposed_gates = decomposeCZ(g.qubit, g.ctrl);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "CY") == 0)
+        else if (g.name_equals("CY"))
         {
             vector<Gate> Decomposed_gates = decomposeCY(g.qubit, g.ctrl);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "CH") == 0)
+        else if (g.name_equals("CH"))
         {
             vector<Gate> Decomposed_gates = decomposeCH(g.qubit, g.ctrl);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "CS") == 0)
+        else if (g.name_equals("CS"))
         {
             vector<Gate> Decomposed_gates = decomposeCS(g.qubit, g.ctrl);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "CSDG") == 0)
+        else if (g.name_equals("CSDG"))
         {
             vector<Gate> Decomposed_gates = decomposeCSDG(g.qubit, g.ctrl);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "CT") == 0)
+        else if (g.name_equals("CT"))
         {
             vector<Gate> Decomposed_gates = decomposeCT(g.qubit, g.ctrl);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "CTDG") == 0)
+        else if (g.name_equals("CTDG"))
         {
             vector<Gate> Decomposed_gates = decomposeCTDG(g.qubit, g.ctrl);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "CRX") == 0)
+        else if (g.name_equals("CRX"))
         {
             vector<Gate> Decomposed_gates = decomposeCRX(g.theta, g.qubit, g.ctrl);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "CRY") == 0)
+        else if (g.name_equals("CRY"))
         {
             vector<Gate> Decomposed_gates = decomposeCRY(g.theta, g.qubit, g.ctrl);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "CRZ") == 0)
+        else if (g.name_equals("CRZ"))
         {
             vector<Gate> Decomposed_gates = decomposeCRZ(g.theta, g.qubit, g.ctrl);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "CSX") == 0)
+        else if (g.name_equals("CSX"))
         {
             vector<Gate> Decomposed_gates = decomposeCSX(g.qubit, g.ctrl);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "CP") == 0)
+        else if (g.name_equals("CP"))
         {
             vector<Gate> Decomposed_gates = decomposeCP(g.theta, g.qubit, g.ctrl);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "CU") == 0)
+        else if (g.name_equals("CU"))
         {
             vector<Gate> Decomposed_gates = decomposeCU(g.theta, g.phi, g.lam, g.gamma, g.qubit, g.ctrl);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "RXX") == 0)
+        else if (g.name_equals("RXX"))
         {
             vector<Gate> Decomposed_gates = decomposeRXX(g.theta, g.qubit, g.ctrl);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "RYY") == 0)
+        else if (g.name_equals("RYY"))
         {
             vector<Gate> Decomposed_gates = decomposeRYY(g.theta, g.qubit, g.ctrl);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "RZZ") == 0)
+        else if (g.name_equals("RZZ"))
         {
             vector<Gate> Decomposed_gates = decomposeRZZ(g.theta, g.qubit, g.ctrl);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "SWAP") == 0)
+        else if (g.name_equals("SWAP"))
         {
             vector<Gate> Decomposed_gates = decomposeSWAP(g.qubit, g.ctrl);
             decomposedGates.insert(decomposedGates.end(), Decomposed_gates.begin(), Decomposed_gates.end());
         }
-        else if (strcmp(OP_NAMES[g.op_name], "CX") == 0)
+        else if (g.name_equals("CX"))
         {
             decomposedGates.push_back(g);
         }
-        else if (strcmp(OP_NAMES[g.op_name], "RZ") == 0)
+        else if (g.name_equals("RZ"))
         {
             // cout<<"gate name is"<<OP_NAMES[g.op_name]<<"angle is"<<g.theta<<endl;
             decomposedGates.push_back(BasicRZ(g.theta, g.qubit));
         }
-        else if (strcmp(OP_NAMES[g.op_name], "SX") == 0)
+        else if (g.name_equals("SX"))
         {
             decomposedGates.push_back(g);
         }
-        else if (strcmp(OP_NAMES[g.op_name], "X") == 0)
+        else if (g.name_equals("X"))
         {
             decomposedGates.push_back(g);
         }
-        else if (strcmp(OP_NAMES[g.op_name], "MA") == 0)
+        else if (g.name_equals("MA"))
         {
             decomposedGates.push_back(g);
         }
-        else if (strcmp(OP_NAMES[g.op_name], "ID") == 0)
+        else if (g.name_equals("ID"))
         {
             decomposedGates.push_back(g);
         }
-        else if (strcmp(OP_NAMES[g.op_name], "RESET") == 0)
+        else if (g.name_equals("RESET"))
         {
             decomposedGates.push_back(g);
         }
         else
         {
             cout << "Error: cannot find this gate: " << endl;
-            cout << "Gate " << OP_NAMES[g.op_name] << " not supported" << endl;
+            cout << "Gate " << g.name() << " not supported" << endl;
             decomposedGates.push_back(g);
+        }
+        size_t after_size = decomposedGates.size();
+        for (size_t idx = before_size; idx < after_size; ++idx)
+        {
+            decomposedGates[idx].inherit_logical_metadata(g);
         }
     }
     if (mode == 0)
@@ -672,22 +764,56 @@ void Decompose(shared_ptr<Circuit> circuit, IdxType mode)
         vector<Gate> decomposedGates_IonQ;
         for (Gate g : decomposedGates)
         {
-            if (strcmp(OP_NAMES[g.op_name], "RZ") == 0)
+            size_t before_size = decomposedGates_IonQ.size();
+            if (g.has_custom_name())
+            {
+                decomposedGates_IonQ.push_back(g);
+                size_t after_size = decomposedGates_IonQ.size();
+                for (size_t idx = before_size; idx < after_size; ++idx)
+                {
+                    decomposedGates_IonQ[idx].inherit_logical_metadata(g);
+                }
+                continue;
+            }
+            std::string alias = lookupMergedAlias(g);
+            if (!alias.empty())
+            {
+                g.set_custom_name(alias);
+                decomposedGates_IonQ.push_back(g);
+                size_t after_size = decomposedGates_IonQ.size();
+                for (size_t idx = before_size; idx < after_size; ++idx)
+                {
+                    decomposedGates_IonQ[idx].inherit_logical_metadata(g);
+                }
+                continue;
+            }
+            std::string gate_name_lower = g.lower_name();
+            if (g_device_basis_gates.find(gate_name_lower) != g_device_basis_gates.end())
+            {
+                decomposedGates_IonQ.push_back(g);
+                size_t after_size = decomposedGates_IonQ.size();
+                for (size_t idx = before_size; idx < after_size; ++idx)
+                {
+                    decomposedGates_IonQ[idx].inherit_logical_metadata(g);
+                }
+                continue;
+            }
+            if (g.name_equals("RZ"))
             {
                 // cout<<"gate name is"<<OP_NAMES[g.op_name]<<"angle is"<<g.theta<<endl;
                 decomposedGates_IonQ.push_back(BasicRZ(g.theta, g.qubit));
             }
-            else if (strcmp(OP_NAMES[g.op_name], "SX") == 0)
+            else if (g.name_equals("SX"))
             {
                 // cout<<"gate name is"<<OP_NAMES[g.op_name]<<"angle is"<<g.theta<<endl;
                 decomposedGates_IonQ.push_back(Gate(OP::RX, g.qubit, -1, -1, 1, PI / 2));
             }
-            else if (strcmp(OP_NAMES[g.op_name], "X") == 0)
+            else if (g.name_equals("X"))
             {
                 // cout<<"gate name is"<<OP_NAMES[g.op_name]<<"angle is"<<g.theta<<endl;
                 decomposedGates_IonQ.push_back(Gate(OP::RX, g.qubit, -1, -1, 1, PI));
             }
-            else if (strcmp(OP_NAMES[g.op_name], "CX") == 0)
+            else if (g.name_equals("CX"))
             {
                 // cout<<"gate name is"<<OP_NAMES[g.op_name]<<"angle is"<<g.theta<<endl;
                 decomposedGates_IonQ.push_back(Gate(OP::RY, g.qubit, -1, -1, 1, PI / 2));
@@ -695,6 +821,11 @@ void Decompose(shared_ptr<Circuit> circuit, IdxType mode)
                 decomposedGates_IonQ.push_back(Gate(OP::RX, g.qubit, -1, -1, 1, -PI / 2));
                 decomposedGates_IonQ.push_back(Gate(OP::RX, g.ctrl, -1, -1, 1, -PI / 2));
                 decomposedGates_IonQ.push_back(Gate(OP::RY, g.qubit, -1, -1, 1, -PI / 2));
+            }
+            size_t after_size = decomposedGates_IonQ.size();
+            for (size_t idx = before_size; idx < after_size; ++idx)
+            {
+                decomposedGates_IonQ[idx].inherit_logical_metadata(g);
             }
         }
         circuit->set_gates(decomposedGates_IonQ);
@@ -705,22 +836,56 @@ void Decompose(shared_ptr<Circuit> circuit, IdxType mode)
         vector<Gate> decomposedGates_Quantinuum;
         for (Gate g : decomposedGates)
         {
-            if (strcmp(OP_NAMES[g.op_name], "RZ") == 0)
+            size_t before_size = decomposedGates_Quantinuum.size();
+            if (g.has_custom_name())
+            {
+                decomposedGates_Quantinuum.push_back(g);
+                size_t after_size = decomposedGates_Quantinuum.size();
+                for (size_t idx = before_size; idx < after_size; ++idx)
+                {
+                    decomposedGates_Quantinuum[idx].inherit_logical_metadata(g);
+                }
+                continue;
+            }
+            std::string alias = lookupMergedAlias(g);
+            if (!alias.empty())
+            {
+                g.set_custom_name(alias);
+                decomposedGates_Quantinuum.push_back(g);
+                size_t after_size = decomposedGates_Quantinuum.size();
+                for (size_t idx = before_size; idx < after_size; ++idx)
+                {
+                    decomposedGates_Quantinuum[idx].inherit_logical_metadata(g);
+                }
+                continue;
+            }
+            std::string gate_name_lower = g.lower_name();
+            if (g_device_basis_gates.find(gate_name_lower) != g_device_basis_gates.end())
+            {
+                decomposedGates_Quantinuum.push_back(g);
+                size_t after_size = decomposedGates_Quantinuum.size();
+                for (size_t idx = before_size; idx < after_size; ++idx)
+                {
+                    decomposedGates_Quantinuum[idx].inherit_logical_metadata(g);
+                }
+                continue;
+            }
+            if (g.name_equals("RZ"))
             {
                 // cout<<"gate name is"<<OP_NAMES[g.op_name]<<"angle is"<<g.theta<<endl;
                 decomposedGates_Quantinuum.push_back(BasicRZ(g.theta, g.qubit));
             }
-            else if (strcmp(OP_NAMES[g.op_name], "SX") == 0)
+            else if (g.name_equals("SX"))
             {
                 // cout<<"gate name is"<<OP_NAMES[g.op_name]<<"angle is"<<g.theta<<endl;
                 decomposedGates_Quantinuum.push_back(Gate(OP::U, g.qubit, -1, -1, 1, PI / 2));
             }
-            else if (strcmp(OP_NAMES[g.op_name], "X") == 0)
+            else if (g.name_equals("X"))
             {
                 // cout<<"gate name is"<<OP_NAMES[g.op_name]<<"angle is"<<g.theta<<endl;
                 decomposedGates_Quantinuum.push_back(Gate(OP::U, g.qubit, -1, -1, 1, PI));
             }
-            else if (strcmp(OP_NAMES[g.op_name], "CX") == 0)
+            else if (g.name_equals("CX"))
             {
                 // cout<<"gate name is"<<OP_NAMES[g.op_name]<<"angle is"<<g.theta<<endl;
                 decomposedGates_Quantinuum.push_back(Gate(OP::U, g.qubit, -1, -1, 1, -PI / 2, PI / 2));
@@ -728,6 +893,11 @@ void Decompose(shared_ptr<Circuit> circuit, IdxType mode)
                 decomposedGates_Quantinuum.push_back(Gate(OP::RZ, g.ctrl, -1, -1, 1, -PI / 2));
                 decomposedGates_Quantinuum.push_back(Gate(OP::U, g.qubit, -1, -1, 1, PI / 2, PI));
                 decomposedGates_Quantinuum.push_back(Gate(OP::RZ, g.ctrl, -1, -1, 1, -PI / 2));
+            }
+            size_t after_size = decomposedGates_Quantinuum.size();
+            for (size_t idx = before_size; idx < after_size; ++idx)
+            {
+                decomposedGates_Quantinuum[idx].inherit_logical_metadata(g);
             }
         }
         circuit->set_gates(decomposedGates_Quantinuum);
@@ -738,31 +908,71 @@ void Decompose(shared_ptr<Circuit> circuit, IdxType mode)
         vector<Gate> decomposedGates_Rigetti;
         for (Gate g : decomposedGates)
         {
-            if (strcmp(OP_NAMES[g.op_name], "RZ") == 0)
+            size_t before_size = decomposedGates_Rigetti.size();
+            if (g.has_custom_name())
+            {
+                decomposedGates_Rigetti.push_back(g);
+                size_t after_size = decomposedGates_Rigetti.size();
+                for (size_t idx = before_size; idx < after_size; ++idx)
+                {
+                    decomposedGates_Rigetti[idx].inherit_logical_metadata(g);
+                }
+                continue;
+            }
+            std::string alias = lookupMergedAlias(g);
+            if (!alias.empty())
+            {
+                g.set_custom_name(alias);
+                decomposedGates_Rigetti.push_back(g);
+                size_t after_size = decomposedGates_Rigetti.size();
+                for (size_t idx = before_size; idx < after_size; ++idx)
+                {
+                    decomposedGates_Rigetti[idx].inherit_logical_metadata(g);
+                }
+                continue;
+            }
+            std::string gate_name_lower = g.lower_name();
+            if (g_device_basis_gates.find(gate_name_lower) != g_device_basis_gates.end())
+            {
+                decomposedGates_Rigetti.push_back(g);
+                size_t after_size = decomposedGates_Rigetti.size();
+                for (size_t idx = before_size; idx < after_size; ++idx)
+                {
+                    decomposedGates_Rigetti[idx].inherit_logical_metadata(g);
+                }
+                continue;
+            }
+            if (g.name_equals("RZ"))
             {
                 // cout<<"gate name is"<<OP_NAMES[g.op_name]<<"angle is"<<g.theta<<endl;
                 decomposedGates_Rigetti.push_back(BasicRZ(g.theta, g.qubit));
             }
-            else if (strcmp(OP_NAMES[g.op_name], "SX") == 0)
+            else if (g.name_equals("SX"))
             {
                 // cout<<"gate name is"<<OP_NAMES[g.op_name]<<"angle is"<<g.theta<<endl;
                 decomposedGates_Rigetti.push_back(Gate(OP::RX, g.qubit, -1, -1, 1, PI / 2));
             }
-            else if (strcmp(OP_NAMES[g.op_name], "X") == 0)
+            else if (g.name_equals("X"))
             {
                 // cout<<"gate name is"<<OP_NAMES[g.op_name]<<"angle is"<<g.theta<<endl;
                 decomposedGates_Rigetti.push_back(Gate(OP::RX, g.qubit, -1, -1, 1, PI));
             }
-            else if (strcmp(OP_NAMES[g.op_name], "CX") == 0)
+            else if (g.name_equals("CX"))
             {
-                // cout<<"gate name is"<<OP_NAMES[g.op_name]<<"angle is"<<g.theta<<endl;
-                decomposedGates_Rigetti.push_back(Gate(OP::RZ, g.qubit, -1, -1, 1, -PI / 2));
-                decomposedGates_Rigetti.push_back(Gate(OP::RX, g.qubit, -1, -1, 1, -PI / 2));
-                decomposedGates_Rigetti.push_back(Gate(OP::RZ, g.qubit, -1, -1, 1, -PI / 2));
-                decomposedGates_Rigetti.push_back(Gate(OP::CZ, g.qubit, g.ctrl, 2));
-                decomposedGates_Rigetti.push_back(Gate(OP::RZ, g.qubit, -1, -1, 1, -PI / 2));
-                decomposedGates_Rigetti.push_back(Gate(OP::RX, g.qubit, -1, -1, 1, -PI / 2));
-                decomposedGates_Rigetti.push_back(Gate(OP::RZ, g.qubit, -1, -1, 1, -PI / 2));
+                IdxType ctrl = g.ctrl;
+                IdxType target = g.qubit;
+                decomposedGates_Rigetti.push_back(Gate(OP::RZ, target, -1, -1, 1, PI / 2));
+                decomposedGates_Rigetti.push_back(Gate(OP::ISWAP, target, ctrl, -1, 2));
+                decomposedGates_Rigetti.push_back(Gate(OP::RX, ctrl, -1, -1, 1, -PI / 2));
+                decomposedGates_Rigetti.push_back(Gate(OP::RZ, ctrl, -1, -1, 1, PI / 2));
+                decomposedGates_Rigetti.push_back(Gate(OP::ISWAP, target, ctrl, -1, 2));
+                decomposedGates_Rigetti.push_back(Gate(OP::RX, target, -1, -1, 1, -PI / 2));
+                decomposedGates_Rigetti.push_back(Gate(OP::RZ, ctrl, -1, -1, 1, PI / 2));
+            }
+            size_t after_size = decomposedGates_Rigetti.size();
+            for (size_t idx = before_size; idx < after_size; ++idx)
+            {
+                decomposedGates_Rigetti[idx].inherit_logical_metadata(g);
             }
         }
         circuit->set_gates(decomposedGates_Rigetti);
@@ -773,23 +983,62 @@ void Decompose(shared_ptr<Circuit> circuit, IdxType mode)
         vector<Gate> decomposedGates_Quafu;
         for (Gate g : decomposedGates)
         {
-            if (strcmp(OP_NAMES[g.op_name], "RZ") == 0)
+            size_t before_size = decomposedGates_Quafu.size();
+            if (g.has_custom_name())
+            {
+                decomposedGates_Quafu.push_back(g);
+                size_t after_size = decomposedGates_Quafu.size();
+                for (size_t idx = before_size; idx < after_size; ++idx)
+                {
+                    decomposedGates_Quafu[idx].inherit_logical_metadata(g);
+                }
+                continue;
+            }
+            std::string alias = lookupMergedAlias(g);
+            if (!alias.empty())
+            {
+                g.set_custom_name(alias);
+                decomposedGates_Quafu.push_back(g);
+                size_t after_size = decomposedGates_Quafu.size();
+                for (size_t idx = before_size; idx < after_size; ++idx)
+                {
+                    decomposedGates_Quafu[idx].inherit_logical_metadata(g);
+                }
+                continue;
+            }
+            std::string gate_name_lower = g.lower_name();
+            if (g_device_basis_gates.find(gate_name_lower) != g_device_basis_gates.end())
+            {
+                decomposedGates_Quafu.push_back(g);
+                size_t after_size = decomposedGates_Quafu.size();
+                for (size_t idx = before_size; idx < after_size; ++idx)
+                {
+                    decomposedGates_Quafu[idx].inherit_logical_metadata(g);
+                }
+                continue;
+            }
+            if (g.name_equals("RZ"))
             {
                 decomposedGates_Quafu.push_back(BasicRZ(g.theta, g.qubit));
             }
-            else if (strcmp(OP_NAMES[g.op_name], "SX") == 0)
+            else if (g.name_equals("SX"))
             {
                 decomposedGates_Quafu.push_back(Gate(OP::RX, g.qubit, -1, -1, 1, PI / 2));
             }
-            else if (strcmp(OP_NAMES[g.op_name], "X") == 0)
+            else if (g.name_equals("X"))
             {
                 decomposedGates_Quafu.push_back(Gate(OP::RX, g.qubit, -1, -1, 1, PI));
             }
-            else if (strcmp(OP_NAMES[g.op_name], "CX") == 0)
+            else if (g.name_equals("CX"))
             {
                 decomposedGates_Quafu.push_back(Gate(OP::H, g.qubit));
                 decomposedGates_Quafu.push_back(Gate(OP::CZ, g.qubit, g.ctrl, 2));
                 decomposedGates_Quafu.push_back(Gate(OP::H, g.qubit));
+            }
+            size_t after_size = decomposedGates_Quafu.size();
+            for (size_t idx = before_size; idx < after_size; ++idx)
+            {
+                decomposedGates_Quafu[idx].inherit_logical_metadata(g);
             }
         }
         circuit->set_gates(decomposedGates_Quafu);

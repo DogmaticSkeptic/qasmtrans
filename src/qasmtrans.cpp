@@ -4,6 +4,7 @@
 #include <cctype>
 #include <iostream>
 #include <stdexcept>
+#include <exception>
 #include <sstream>
 #include <iomanip>
 #include <filesystem>
@@ -12,20 +13,38 @@
 #include <chrono>
 #include <optional>
 #include <array>
+#include <unordered_map>
+#include <unordered_set>
+#include <numeric>
 
 #include "../include/QASMTransPrimitives.hpp"
+#include "../include/dump_pulses.hpp"
 #include "../include/IR/chip.hpp"
 #include "../include/parser/parser_util.hpp"
 #include "../include/parser/qasm_parser.hpp"
 #include "../include/circuit_passes/transpiler.hpp"
 #include "../include/util/chip_partition.hpp"
 #include "../include/nlomann/json.hpp"
+#include "../include/qick_emitter.hpp"
 
 using namespace QASMTrans;
 namespace fs = std::filesystem;
+using json = nlohmann::json;
 
 namespace
 {
+std::string derivePulseOutputPath(const std::string &qasm_output_path)
+{
+    fs::path qasm_path(qasm_output_path);
+    fs::path directory = qasm_path.parent_path();
+    std::string stem = qasm_path.stem().string();
+    if (stem.empty())
+    {
+        stem = qasm_path.filename().string();
+    }
+    fs::path candidate = directory / (stem + "_pulses.json");
+    return candidate.string();
+}
 
 std::vector<IdxType> build_measurement_mapping(const std::map<std::string, creg> &cregs,
                                                const std::vector<IdxType> &logical_to_physical)
@@ -507,6 +526,15 @@ PrunedSubchipData prune_subchip_artifact(const SubchipArtifact &artifact,
 
 } // namespace
 
+namespace QASMTrans
+{
+    std::unordered_set<std::string> g_device_basis_gates;
+    std::unordered_map<std::string, std::string> g_merged_gate_aliases;
+}
+
+using QASMTrans::g_device_basis_gates;
+using QASMTrans::g_merged_gate_aliases;
+
 void print_help()
 {
     // print the help function for all the options
@@ -526,6 +554,11 @@ void print_help()
     std::cout << "--disable_mapomatic       Skip the calibration-aware Mapomatic pass" << std::endl;
     std::cout << "-o <path>         Set the output file, "
         << "default is data/output/transpiled_modename_filename.qasm" << std::endl;
+    std::cout << "-p <path>         Pulse template json (optional; enables pulse dumping)" << std::endl;
+    std::cout << "-e <config>       Emit pulses via QICK using the provided QICK config" << std::endl;
+    std::cout << "--emit-run        When paired with -e, stream pulses to hardware (otherwise summary only)" << std::endl;
+    std::cout << "--merge-allow-params     Include parameterised logical gates as merge candidates (default)" << std::endl;
+    std::cout << "--merge-disallow-params  Exclude parameterised logical gates from merge candidate analysis" << std::endl;
     std::cout << "-h                print the help function" << std::endl;
 }
 
@@ -536,6 +569,11 @@ int main(int argc, char **argv)
     std::string mode_name = "ibmq";
     IdxType debug_level = 0;
     std::string output_path = "../data/output/";
+    std::string pulse_template_path;
+    bool emit_requested = false;
+    bool emit_run = false;
+    std::string qick_config_path;
+    bool allow_parameterized_merge_candidates = true;
     std::string backendpath;
     std::vector<std::string> input_files;
     bool disable_mapomatic = false;
@@ -632,6 +670,33 @@ int main(int argc, char **argv)
         {
             output_path = std::string(getCmdOption(argv, argv + argc, "-o"));
         }
+        if (cmdOptionExists(argv, argv + argc, "-p"))
+        {
+            pulse_template_path = std::string(getCmdOption(argv, argv + argc, "-p"));
+        }
+        if (cmdOptionExists(argv, argv + argc, "-e"))
+        {
+            const char *emit_config = getCmdOption(argv, argv + argc, "-e");
+            if (emit_config == nullptr)
+            {
+                std::cerr << "Error: missing QICK config path after -e" << std::endl;
+                return 1;
+            }
+            qick_config_path = std::string(emit_config);
+            emit_requested = true;
+        }
+        if (cmdOptionExists(argv, argv + argc, "--emit-run"))
+        {
+            emit_run = true;
+        }
+        if (cmdOptionExists(argv, argv + argc, "--merge-disallow-params"))
+        {
+            allow_parameterized_merge_candidates = false;
+        }
+        if (cmdOptionExists(argv, argv + argc, "--merge-allow-params"))
+        {
+            allow_parameterized_merge_candidates = true;
+        }
         int argi = 1;
         while (argi < argc)
         {
@@ -650,6 +715,24 @@ int main(int argc, char **argv)
             if (current == "--disable_mapomatic")
             {
                 disable_mapomatic = true;
+                ++argi;
+                continue;
+            }
+            if (current == "--merge-disallow-params")
+            {
+                allow_parameterized_merge_candidates = false;
+                ++argi;
+                continue;
+            }
+            if (current == "--merge-allow-params")
+            {
+                allow_parameterized_merge_candidates = true;
+                ++argi;
+                continue;
+            }
+            if (current == "--emit-run")
+            {
+                emit_run = true;
                 ++argi;
                 continue;
             }
@@ -688,6 +771,87 @@ int main(int argc, char **argv)
         {
             std::cerr << "Error: missing machine backend file via -c" << std::endl;
             return 1;
+        }
+        if (emit_requested && pulse_template_path.empty())
+        {
+            std::cerr << "Error: -e requires a pulse template via -p to generate pulses." << std::endl;
+            return 1;
+        }
+
+        g_device_basis_gates.clear();
+        g_merged_gate_aliases.clear();
+        try
+        {
+            std::ifstream backend_stream(backendpath);
+            if (backend_stream.is_open())
+            {
+                json backend_config = json::parse(backend_stream, nullptr, true, true);
+                auto to_lower = [](std::string value)
+                {
+                    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
+                    return value;
+                };
+                auto ingest_aliases = [&](const json &aliases)
+                {
+                    if (!aliases.is_object())
+                    {
+                        return;
+                    }
+                    for (const auto &item : aliases.items())
+                    {
+                        std::string alias_name = to_lower(item.key());
+                        if (alias_name.empty())
+                        {
+                            continue;
+                        }
+                        g_device_basis_gates.insert(alias_name);
+                        const json &info = item.value();
+                        if (!info.is_object())
+                        {
+                            continue;
+                        }
+                        std::string logical = to_lower(info.value("logical_gate", std::string{}));
+                        if (logical.empty())
+                        {
+                            continue;
+                        }
+                        if (g_merged_gate_aliases.find(logical) == g_merged_gate_aliases.end())
+                        {
+                            g_merged_gate_aliases[logical] = alias_name;
+                        }
+                    }
+                };
+                auto ingest_basis = [&](const json &arr)
+                {
+                    if (!arr.is_array())
+                    {
+                        return;
+                    }
+                    for (const auto &entry : arr)
+                    {
+                        if (entry.is_string())
+                        {
+                            std::string gate = to_lower(entry.get<std::string>());
+                            if (!gate.empty())
+                            {
+                                g_device_basis_gates.insert(gate);
+                            }
+                        }
+                    }
+                };
+                ingest_basis(backend_config.value("basis_gates", json::array()));
+                if (backend_config.contains("metadata") && backend_config["metadata"].is_object())
+                {
+                    ingest_basis(backend_config["metadata"].value("basis_gates", json::array()));
+                    ingest_aliases(backend_config["metadata"].value("merged_gate_aliases", json::object()));
+                }
+                ingest_aliases(backend_config.value("merged_gate_aliases", json::object()));
+            }
+        }
+        catch (const std::exception &)
+        {
+            // Leave alias map empty on parse failure; downstream passes fall back to defaults.
         }
 
         if (cmdOptionExists(argv, argv + argc, "-m"))
@@ -1051,6 +1215,18 @@ int main(int argc, char **argv)
             cout << "Combined logical qubits: " << total_requested_qubits << endl;
             cout << "Basis gate mode: " << mode_name << endl;
             cout << "Limit mode: " << (run_with_limit ? "True" : "False") << endl;
+            if (!pulse_template_path.empty())
+            {
+                cout << "Pulse template: " << pulse_template_path << endl;
+            }
+            else
+            {
+                cout << "Pulse template: (not provided; skipping pulse dump)" << endl;
+            }
+            if (emit_requested)
+            {
+                cout << "QICK emission: enabled (" << (emit_run ? "run" : "summary") << " mode)" << endl;
+            }
         }
 
         if (debug_level > 0)
@@ -1064,6 +1240,56 @@ int main(int argc, char **argv)
         std::string final_output_qasm = dumpQASM(combined_circuit, input_files.front().c_str(), requested_output_path, debug_level, mode);
         output_path = final_output_qasm;
         cout << "Saving output qasm to: " << final_output_qasm << endl;
+
+        std::string pulses_output_path;
+        if (!pulse_template_path.empty())
+        {
+            try
+            {
+                pulses_output_path = derivePulseOutputPath(final_output_qasm);
+                dumpPulses(combined_circuit,
+                           input_files.front().c_str(),
+                           backendpath,
+                           pulse_template_path,
+                           pulses_output_path,
+                           debug_level,
+                           allow_parameterized_merge_candidates);
+                cout << "Saving output pulses to: " << pulses_output_path << endl;
+            }
+            catch (const std::exception &ex)
+            {
+                std::cerr << "Error while generating pulses: " << ex.what() << std::endl;
+                return 1;
+            }
+        }
+        else if (debug_level > 0)
+        {
+            cout << "Pulse template not provided; skipping pulse dump." << endl;
+        }
+
+        if (emit_requested)
+        {
+            if (pulses_output_path.empty())
+            {
+                std::cerr << "Error: unable to emit pulses because the pulse schedule was not generated." << std::endl;
+                return 1;
+            }
+            try
+            {
+                bool summary_only = !emit_run;
+                QASMTrans::pulses::emit_with_qick(pulses_output_path,
+                                                   qick_config_path,
+                                                   emit_run,
+                                                   summary_only,
+                                                   argv[0],
+                                                   debug_level > 0);
+            }
+            catch (const std::exception &ex)
+            {
+                std::cerr << "Error while emitting via QICK: " << ex.what() << std::endl;
+                return 1;
+            }
+        }
 
         fs::path final_output_path(final_output_qasm);
         fs::path base_output_dir = final_output_path.has_parent_path() ? final_output_path.parent_path() : fs::current_path();
