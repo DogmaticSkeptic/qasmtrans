@@ -1,9 +1,0 @@
-Circuit,Mode,PhysicalQubits,AverageFidelity
-bb84_n8.qasm,off,8,9.142758e-01
-bb84_n8.qasm,on,8,8.882401e-01
-qaoa_n6.qasm,off,6,4.255122e-01
-qaoa_n6.qasm,on,6,3.899787e-01
-qpe_n9.qasm,off,9,3.472349e-01
-qpe_n9.qasm,on,9,2.569576e-01
-sat_n7.qasm,off,7,2.052155e-01
-sat_n7.qasm,on,7,1.400378e-01
