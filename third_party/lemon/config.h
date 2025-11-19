@@ -1,9 +1,7 @@
 #pragma once
 
-// Minimal configuration header for LEMON when the upstream generated
-// config.h is not available.  The values here are conservative defaults
-// that satisfy the compilation requirements of the portions of LEMON
-// used by qasmtrans.
+// Minimal configuration header for LEMON when the generated config is absent.
+// These defaults cover the portions of the library used by qasmtrans.
 
 #define LEMON_VERSION_MAJOR 1
 #define LEMON_VERSION_MINOR 3

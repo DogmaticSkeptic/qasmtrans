@@ -37,18 +37,11 @@ add_executable(QASMTrans
     src/qick_emitter.cpp
 )
 
-# Make the project's headers and the Lemon headers visible to the target
+# Make the project's headers and the vendored Lemon headers visible to the target
 target_include_directories(QASMTrans
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party
-)
-
-# Search Lemon headers after the standard library so they don't shadow libc++ <math.h>
-target_compile_options(QASMTrans
-    PRIVATE
-        "-iquote${CMAKE_CURRENT_SOURCE_DIR}/../lemon"
-        "-idirafter${CMAKE_CURRENT_SOURCE_DIR}/.."
 )
 
 # Link pybind
