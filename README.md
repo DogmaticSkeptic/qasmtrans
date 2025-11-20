@@ -13,9 +13,24 @@ Please check our paper for details and performance: https://arxiv.org/pdf/2308.0
 ## Installation
 To install the software, follow the steps below:
 
+Clone the repository.
 ```bash
 git clone https://github.com/pnnl/qasmtrans.git
 cd qasmtrans
+```
+
+Ensure you have python 3.10.18 installed on your system. Make a python venv and activate it. (You can use pyenv to manage python installations)
+
+```bash
+python -m venv venv
+
+source venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+Now you can build the project.
+```bash
 mkdir build
 cd build
 cmake ..

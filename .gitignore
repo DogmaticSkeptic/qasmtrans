@@ -48,6 +48,8 @@ data/output/
 .DS_Store
 .vscode/
 *.log
+.python-version
+venv/
 
 # Depending on the IDE/Editor you are using, you may want to ignore its config files too
 # For example, if using Visual Studio:

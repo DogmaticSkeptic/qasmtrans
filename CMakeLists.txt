@@ -20,15 +20,23 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 # Set the -O3 optimization flag for all configurations
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
 
-# Set pybind environment stuff when CONDA_PREFIX is available
-if(DEFINED ENV{CONDA_PREFIX} AND NOT "$ENV{CONDA_PREFIX}" STREQUAL "")
-    set(Python3_EXECUTABLE "$ENV{CONDA_PREFIX}/bin/python" CACHE FILEPATH "" FORCE)
-    set(Python3_ROOT_DIR "$ENV{CONDA_PREFIX}" CACHE PATH "" FORCE)
-    set(pybind11_DIR "$ENV{CONDA_PREFIX}/share/cmake/pybind11" CACHE PATH "" FORCE)
-    list(APPEND CMAKE_PREFIX_PATH "$ENV{CONDA_PREFIX}")
-endif()
+set(Python3_FIND_VIRTUALENV FIRST)
 
 find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+
+execute_process(
+    COMMAND "${Python3_EXECUTABLE}" -m pybind11 --cmakedir
+    OUTPUT_VARIABLE _pybind11_dir
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE _pybind11_status
+)
+
+if (NOT _pybind11_status EQUAL 0)
+    message(FATAL_ERROR "Failed to find pybind11 via Python. Did you run 'pip install pybind11'?")
+endif()
+
+list(APPEND CMAKE_PREFIX_PATH "${_pybind11_dir}")
+
 find_package(pybind11 CONFIG REQUIRED)
 
 # Add executable
