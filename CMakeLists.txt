@@ -54,3 +54,30 @@ target_include_directories(QASMTrans
 
 # Link pybind
 target_link_libraries(QASMTrans PRIVATE pybind11::embed Python3::Python)
+
+# Python binding skeleton (pybind11 module)
+pybind11_add_module(qasmtrans_core MODULE
+    src/python_binding.cpp
+)
+target_include_directories(qasmtrans_core
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+)
+# Place the module next to the python/ helpers for easy import during development
+set_target_properties(qasmtrans_core PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/python
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/python
+)
+
+install(TARGETS qasmtrans_core
+    LIBRARY DESTINATION qasmtrans
+    RUNTIME DESTINATION qasmtrans
+    ARCHIVE DESTINATION qasmtrans
+)
+install(FILES
+    python/qasmtrans/__init__.py
+    python/qasmtrans/plot_pulses.py
+    python/qasmtrans/qick_pulse_runner.py
+    DESTINATION qasmtrans
+)
