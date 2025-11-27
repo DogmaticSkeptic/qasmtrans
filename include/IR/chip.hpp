@@ -46,7 +46,7 @@ namespace QASMTrans
         std::vector<std::optional<double>> prob_meas1_prep0;
     };
 
-    vector<vector<IdxType>> floyd(IdxType node_num, vector<vector<IdxType>> &adj_mat)
+    inline vector<vector<IdxType>> floyd(IdxType node_num, vector<vector<IdxType>> &adj_mat)
     {
         vector<vector<IdxType>> distance_mat(node_num, vector<IdxType>(node_num));
         for (IdxType i = 0; i < node_num; ++i)
@@ -80,7 +80,7 @@ namespace QASMTrans
         return distance_mat;
     }
 
-    shared_ptr<Chip> constructChip(IdxType qubit_num, string backendpath, bool run_with_limit, IdxType debug_level)
+    inline shared_ptr<Chip> constructChip(IdxType qubit_num, string backendpath, bool run_with_limit, IdxType debug_level)
     {
         // string path = "../data/device/" +backend_name+ ".json";
         // string path = "/Users/lian599/local/QASMTrans/data/devices/" +backend_name+ ".json";

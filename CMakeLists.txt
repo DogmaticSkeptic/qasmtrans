@@ -42,6 +42,7 @@ find_package(pybind11 CONFIG REQUIRED)
 # Add executable
 add_executable(QASMTrans
     src/qasmtrans.cpp
+    src/cli_support.cpp
     src/qick_emitter.cpp
 )
 

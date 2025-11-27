@@ -29,6 +29,8 @@
 scripts/tmp/
 .mplconfig/
 data/devices/rigetti_ankaa*
+test/benchmarking/*.csv
+test/benchmarking/output_adaptive/
 
 # CMake generated directories and files
 CMakeCache.txt

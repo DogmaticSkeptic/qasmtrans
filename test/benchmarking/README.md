@@ -26,13 +26,24 @@ Python port of the adaptive timing shell script. Runs QASMTrans on AdaptiveData 
 Example:
 ```
 python test/benchmarking/run_adaptive_timings.py \
-  --adaptive_dir ../AdaptiveData \
+  --qasmtrans_bin build/QASMTrans \
+  --nwqsim_exe ../NWQ-Sim/build/qasm/nwq_qasm
+```
+Default inputs target the AdaptiveData circuits living one level above the repo (`../AdaptiveData`). If you keep them elsewhere, point `--input_dir` at the correct folder. Outputs:
+- CSV: `test/benchmarking/adaptive_timing_ibm_brisbane.csv`
+- Transpiled outputs: `test/benchmarking/output_adaptive/`
+Requires NWQ-Sim and the AdaptiveData QASM files. Adjust `--counts`/`--device_json`/`--mapomatic_limit` as needed.
+
+Example override for a custom dataset:
+```
+python test/benchmarking/run_adaptive_timings.py \
+  --input_dir ../AdaptiveData \
   --qasmtrans_bin build/QASMTrans \
   --nwqsim_exe ../NWQ-Sim/build/qasm/nwq_qasm
 ```
 Outputs:
-- CSV: `test/benchmarking/adaptive_timing_ibm_brisbane.csv`
-- Transpiled outputs: `test/benchmarking/output_adaptive/`
+ - CSV: `test/benchmarking/adaptive_timing_ibm_brisbane.csv`
+ - Transpiled outputs: `test/benchmarking/output_adaptive/`
 Requires NWQ-Sim and the AdaptiveData QASM files. Adjust `--counts`/`--device_json`/`--mapomatic_limit` as needed.
 
 ## QASMTrans VQE/UCCSD metrics
