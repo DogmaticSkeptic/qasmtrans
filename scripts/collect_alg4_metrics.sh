@@ -11,7 +11,8 @@
 # Requirements:
 #   - jq
 #   - QASMTrans build artefacts in ./build
-#   - Conda environment "QASMtrans" available via /opt/homebrew/anaconda3/bin/activate
+#   - Python env with needed deps (merge_pulse.py, simulate_ankaa9q.py, matplotlib)
+#     We default to the repo venv at ./venv/bin/activate; override with VENV_ACTIVATE.
 
 set -euo pipefail
 
@@ -23,15 +24,15 @@ if ! command -v jq >/dev/null 2>&1; then
     exit 1
 fi
 
-CONDA_ACTIVATE="/opt/homebrew/anaconda3/bin/activate"
-ENV_NAME="QASMtrans"
-if [ ! -f "$CONDA_ACTIVATE" ]; then
-    echo "Error: conda activate script not found at $CONDA_ACTIVATE" >&2
+VENV_ACTIVATE="${VENV_ACTIVATE:-${REPO_DIR}/venv/bin/activate}"
+if [ ! -f "$VENV_ACTIVATE" ]; then
+    echo "Error: Python venv activate script not found at $VENV_ACTIVATE" >&2
+    echo "Set VENV_ACTIVATE to your desired Python environment." >&2
     exit 1
 fi
 
 # shellcheck disable=SC1091
-source "$CONDA_ACTIVATE" "$ENV_NAME"
+source "$VENV_ACTIVATE"
 
 export MPLCONFIGDIR="${REPO_DIR}/.mplconfig"
 mkdir -p "$MPLCONFIGDIR"

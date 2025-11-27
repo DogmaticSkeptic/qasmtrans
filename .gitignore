@@ -25,6 +25,10 @@
 *.swn
 *~
 *.png
+*.pdf
+scripts/tmp/
+.mplconfig/
+data/devices/rigetti_ankaa*
 
 # CMake generated directories and files
 CMakeCache.txt
@@ -35,6 +39,9 @@ install_manifest.txt
 data/output_demo*
 data/output_demo_pulses*
 data/output_demo_qick*
+data/output_qasm_file/
+data/mapomatic_benchmarks.csv
+
 
 # Directories generated during build
 build/

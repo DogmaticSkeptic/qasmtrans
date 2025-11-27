@@ -13,6 +13,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <chrono>
+#include <ostream>
 #include <unistd.h>
 
 #include "QASMTransPrimitives.hpp"
@@ -68,6 +69,32 @@ namespace
 {
     using QASMTrans::g_device_basis_gates;
     using QASMTrans::g_merged_gate_aliases;
+
+    struct StreamCapture
+    {
+        std::ostringstream out;
+        std::ostringstream err;
+        std::streambuf *old_out = nullptr;
+        std::streambuf *old_err = nullptr;
+
+        void start()
+        {
+            old_out = std::cout.rdbuf(out.rdbuf());
+            old_err = std::cerr.rdbuf(err.rdbuf());
+        }
+
+        void stop()
+        {
+            if (old_out)
+            {
+                std::cout.rdbuf(old_out);
+            }
+            if (old_err)
+            {
+                std::cerr.rdbuf(old_err);
+            }
+        }
+    };
 
     IdxType mode_from_string(std::string mode_name)
     {
@@ -263,6 +290,8 @@ namespace
 
         TranspileResult result;
         std::ostringstream log;
+        StreamCapture capture;
+        capture.start();
         try
         {
             qasm_parser parser(input_path.c_str());
@@ -338,6 +367,7 @@ namespace
         }
         catch (...)
         {
+            capture.stop();
             if (created_temp)
             {
                 std::error_code ec;
@@ -345,6 +375,7 @@ namespace
             }
             throw;
         }
+        capture.stop();
 
         if (created_temp)
         {
@@ -352,6 +383,11 @@ namespace
             fs::remove(input_path, ec);
         }
         result.log = log.str();
+        std::string captured = capture.out.str();
+        if (!captured.empty())
+        {
+            result.log += "\n" + captured;
+        }
         return result;
     }
 } // namespace
