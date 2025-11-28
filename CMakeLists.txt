@@ -71,6 +71,32 @@ set_target_properties(qasmtrans_core PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/python
 )
 
+# Apple-provided Clang (and the Homebrew LLVM toolchain that scikit-build often
+# selects when building wheels) does not always add the matching libc++/c++abi
+# search paths when linking executables under pip. That leads to link failures
+# such as "std::__1::__hash_memory" being undefined when QASMTrans is built
+# during `pip install .`. Locate the runtime libraries next to the active
+# compiler and link against them explicitly so we always pull in the matching
+# C++ runtime regardless of the surrounding environment.
+if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    get_filename_component(_cxx_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    get_filename_component(_toolchain_root "${_cxx_dir}/.." ABSOLUTE)
+    set(_cxx_runtime_hint "${_toolchain_root}/lib/c++")
+    set(_cxx_lib_hints "${_cxx_runtime_hint};${_toolchain_root}/lib")
+    find_library(_libcxx c++ HINTS ${_cxx_lib_hints})
+    find_library(_libcxxabi c++abi HINTS ${_cxx_lib_hints})
+    foreach(target_name IN ITEMS QASMTrans qasmtrans_core)
+        if(TARGET ${target_name})
+            if(_libcxx)
+                target_link_libraries(${target_name} PRIVATE ${_libcxx})
+            endif()
+            if(_libcxxabi)
+                target_link_libraries(${target_name} PRIVATE ${_libcxxabi})
+            endif()
+        endif()
+    endforeach()
+endif()
+
 install(TARGETS qasmtrans_core
     LIBRARY DESTINATION qasmtrans
     RUNTIME DESTINATION qasmtrans

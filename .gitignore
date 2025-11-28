@@ -47,6 +47,7 @@ data/mapomatic_benchmarks.csv
 
 # Directories generated during build
 build/
+build-llvm/
 build-debug/
 Debug/
 Release/

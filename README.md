@@ -71,6 +71,7 @@ The repository includes a pybind11 module (`qasmtrans_core`) and helper scripts 
    # or editable for development
    pip install -e .
    ```
+   **macOS note:** no special commands are required on Apple Silicon—after activating the venv, `pip install .` will compile both the C++ CLI and `qasmtrans_core` extension using the toolchain bundled with the repo.
 
 ## Testing
 The correctness testing is through the comparision of the Qiskit-Aer simulation results from QASMTrans generated circuits, and Qiskit generated circuits for the list of input circuits. The test is passed with differences less than 0.5%. 
@@ -188,4 +189,3 @@ resources of the Oak Ridge Leadership Computing Facility, which is a DOE Office 
 DE-AC05-00OR22725. This research used resources of the National Energy Research Scientific Computing Center (NERSC), a U.S. Department of Energy 
 Office of Science User Facility located at Lawrence Berkeley National Laboratory, operated under Contract No. DE-AC02-05CH11231. The Pacific 
 Northwest National Laboratory is operated by Battelle for the U.S. Department of Energy under Contract DE-AC05-76RL01830.
-
