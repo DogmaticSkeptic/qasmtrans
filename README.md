@@ -60,18 +60,10 @@ The repository includes a pybind11 module (`qasmtrans_core`) and helper scripts 
    cmake -S . -B build
    cmake --build build --target qasmtrans_core
    ```
-   Then add the repo’s `python/` to `PYTHONPATH` when importing locally.
-   ```bash
-   export PYTHONPATH="$(pwd)/python:${PYTHONPATH}"
-   python -c "import qasmtrans; print(qasmtrans.__file__)"
-   ```
    Or install into your environment:
    ```bash
    pip install .
-   # or editable for development
-   pip install -e .
    ```
-   **macOS note:** no special commands are required on Apple Silicon—after activating the venv, `pip install .` will compile both the C++ CLI and `qasmtrans_core` extension using the toolchain bundled with the repo.
 
 ## Testing
 The correctness testing is through the comparision of the Qiskit-Aer simulation results from QASMTrans generated circuits, and Qiskit generated circuits for the list of input circuits. The test is passed with differences less than 0.5%. 

@@ -1,0 +1,8 @@
+# Minimal, unpinned dependencies to build/install qasmtrans.
+# Use when portability across Python versions is important.
+scikit-build-core
+pybind11
+cmake
+build
+setuptools
+wheel

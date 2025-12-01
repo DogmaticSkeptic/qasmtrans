@@ -7,7 +7,7 @@ name = "qasmtrans"
 version = "0.0.1"
 description = "Python bindings for the QASMTrans quantum transpiler."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.8"
 license = { text = "Apache-2.0" }
 authors = [{ name = "QASMTrans Developers" }]
 classifiers = [
