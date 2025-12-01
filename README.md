@@ -138,12 +138,6 @@ Bibtex:
 ## Acknowledgments
 PNNL IPID: 32821-E, IR: PNNL-SA-188499, Export Control: EAR99, Software DOI: 10.11578/dc.20230814.4
 
-This software is supported by the U.S. Department of Energy, Office of Science, National Quantum Information Science Research Centers,
-Co-design Center for Quantum Advantage (C2QA) under contract number DE-SC0012704. The software is also supported by the U.S. 
-Department of Energy, Office of Science, National Quantum Information Science Research Centers, Quantum Science Center (QSC). This research used
-resources of the Oak Ridge Leadership Computing Facility, which is a DOE Office of Science User Facility supported under Contract 
-DE-AC05-00OR22725. This research used resources of the National Energy Research Scientific Computing Center (NERSC), a U.S. Department of Energy 
-Office of Science User Facility located at Lawrence Berkeley National Laboratory, operated under Contract No. DE-AC02-05CH11231. The Pacific 
-Northwest National Laboratory is operated by Battelle for the U.S. Department of Energy under Contract DE-AC05-76RL01830.
+The develoopment of this software is currently supported by the U.S. Department of Energy, Office of Science, National Quantum Information Science Research Centers, Quantum Science Center (QSC). Part of the original development was also supported by the U.S. Department of Energy, Office of Science, National Quantum Information Science Research Centers, Co-design Center for Quantum Advantage (C2QA) under contract number DE-SC0012704. This research used resources of the Oak Ridge Leadership Computing Facility, which is a DOE Office of Science User Facility supported under Contract DE-AC05-00OR22725. This research used resources of the National Energy Research Scientific Computing Center (NERSC), a U.S. Department of Energy Office of Science User Facility located at Lawrence Berkeley National Laboratory, operated under Contract No. DE-AC02-05CH11231. The Pacific Northwest National Laboratory is operated by Battelle for the U.S. Department of Energy under Contract DE-AC05-76RL01830.
 
 
