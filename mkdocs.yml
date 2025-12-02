@@ -1,0 +1,33 @@
+site_name: QASMTrans
+site_description: Quantum transpiler documentation and API reference
+site_url: https://<your-username>.github.io/qasmtrans/
+repo_url: https://github.com/pnnl/qasmtrans
+repo_name: GitHub
+docs_dir: docs
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - content.code.copy
+    - content.action.edit
+  palette:
+    - scheme: default
+      primary: blue
+      accent: indigo
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - def_list
+  - footnotes
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - pymdownx.snippets
+plugins:
+  - search
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - API Reference: api.md
+  - Development: development.md

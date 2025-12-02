@@ -26,6 +26,8 @@
 *~
 *.png
 *.pdf
+site/
+docs/reference/
 scripts/tmp/
 .mplconfig/
 data/devices/rigetti_ankaa*

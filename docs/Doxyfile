@@ -1,0 +1,31 @@
+# Doxygen configuration for QASMTrans
+
+PROJECT_NAME           = "QASMTrans"
+OUTPUT_DIRECTORY       = docs/reference
+INPUT                  = include src
+FILE_PATTERNS          = *.h *.hpp *.cpp
+RECURSIVE              = YES
+EXTRACT_ALL            = YES
+QUIET                  = NO
+WARN_IF_UNDOCUMENTED   = YES
+WARN_NO_PARAMDOC       = YES
+FULL_PATH_NAMES        = NO
+STRIP_FROM_INC_PATH    = include
+
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+HTML_TIMESTAMP         = YES
+
+GENERATE_LATEX         = NO
+
+GENERATE_XML           = YES
+XML_OUTPUT             = xml
+
+HAVE_DOT               = YES
+CALL_GRAPH             = NO
+CALLER_GRAPH           = NO
+CLASS_DIAGRAMS         = YES
+DOT_IMAGE_FORMAT       = svg
+DOT_TRANSPARENT        = YES
+
+EXCLUDE_PATTERNS       = */build/* */build-llvm/* */build-debug/* */venv/* */third_party/*

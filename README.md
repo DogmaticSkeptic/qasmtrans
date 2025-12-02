@@ -9,6 +9,15 @@ QASM circuits, please check our [QASMBench](https://github.com/pnnl/qasmbench).
 
 Please check our paper for details and performance: https://arxiv.org/pdf/2308.07581.pdf
 
+## Documentation
+This repository ships MkDocs + mkdocs-material docs and a Doxygen-generated API reference. To build locally:
+```bash
+pip install -r docs/requirements.txt
+doxygen docs/Doxyfile
+mkdocs serve
+```
+GitHub Pages publishing is configured in `.github/workflows/docs.yml`; enable Pages from GitHub Actions in your fork to preview the site.
+
 
 ## Installation
 To install the software, follow the steps below:
