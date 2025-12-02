@@ -3,9 +3,11 @@
 PROJECT_NAME           = "QASMTrans"
 OUTPUT_DIRECTORY       = docs/doxygen
 INPUT                  = include src
+EXCLUDE                = include/nlomann
 FILE_PATTERNS          = *.h *.hpp *.cpp
 RECURSIVE              = YES
 EXTRACT_ALL            = YES
+EXCLUDE_SYMBOLS        = lexertk* nlohmann* *@*
 QUIET                  = NO
 WARN_IF_UNDOCUMENTED   = YES
 WARN_NO_PARAMDOC       = YES
@@ -28,4 +30,4 @@ CLASS_DIAGRAMS         = YES
 DOT_IMAGE_FORMAT       = svg
 DOT_TRANSPARENT        = YES
 
-EXCLUDE_PATTERNS       = */build/* */build-llvm/* */build-debug/* */venv/* */third_party/*
+EXCLUDE_PATTERNS       = */build/* */build-llvm/* */build-debug/* */venv/* */third_party/* */nlomann/*
