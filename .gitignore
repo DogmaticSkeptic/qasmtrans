@@ -28,6 +28,8 @@
 *.pdf
 site/
 docs/reference/
+docs/doxygen/
+docs/_build/
 scripts/tmp/
 .mplconfig/
 data/devices/rigetti_ankaa*

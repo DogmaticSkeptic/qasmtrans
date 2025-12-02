@@ -36,15 +36,15 @@ jobs:
       - name: Install doc requirements
         run: pip install -r docs/requirements.txt
 
-      - name: Build docs
+      - name: Build docs (Doxygen + Sphinx)
         run: |
           doxygen docs/Doxyfile
-          mkdocs build
+          sphinx-build -b html docs/sphinx docs/_build/html
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v2
         with:
-          path: site
+          path: docs/_build/html
 
   deploy:
     needs: build

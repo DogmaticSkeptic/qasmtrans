@@ -6,18 +6,18 @@ python -m venv venv
 source venv/bin/activate
 pip install -r docs/requirements.txt
 
-# Generate Doxygen HTML/XML and serve the MkDocs site
+# Generate Doxygen XML/HTML and build the Sphinx site
 doxygen docs/Doxyfile
-mkdocs serve
+sphinx-build -b html docs/sphinx docs/_build/html
 ```
-The Doxygen HTML will be available under `reference/html/` inside the MkDocs site.
+Open `docs/_build/html/index.html` to view the site locally. The raw Doxygen HTML remains in `docs/doxygen/html/` if you need it.
 
 ## GitHub Pages via Actions
 The repository includes a workflow (`.github/workflows/docs.yml`) that:
-1. Installs Doxygen and MkDocs dependencies.
-2. Runs `doxygen docs/Doxyfile`.
-3. Builds the MkDocs site (`mkdocs build`), which copies the generated Doxygen HTML.
-4. Publishes the `site/` directory to GitHub Pages.
+1. Installs Doxygen and Python doc dependencies.
+2. Runs `doxygen docs/Doxyfile` (XML + HTML).
+3. Builds the Sphinx site (`sphinx-build -b html docs/sphinx docs/_build/html`).
+4. Publishes `docs/_build/html/` to GitHub Pages.
 
 To test this from a fork on a branch (e.g., `docs-playground`):
 1. Push your docs branch.

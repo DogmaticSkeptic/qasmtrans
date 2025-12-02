@@ -1,17 +1,16 @@
 # API Reference
 
-The C++ API reference is generated with Doxygen from the sources under `include/` and `src/`.
+The C++ API reference is generated with Doxygen and rendered by Sphinx via Breathe.
 
 ## Generate locally
 ```bash
 # From the repository root
 doxygen docs/Doxyfile
-mkdocs serve
+sphinx-build -b html docs/sphinx docs/_build/html
 ```
-After running Doxygen, open `http://127.0.0.1:8000/reference/html/index.html` while `mkdocs serve` is running.
+Open `docs/_build/html/index.html` in your browser to view the site (API is under “API Reference”).
 
-## What gets generated
-- XML output: `docs/reference/xml/` (for future integration with MkDocs plugins if desired).
-- HTML output: `docs/reference/html/`, which is copied verbatim into the MkDocs site so it is available under `/reference/html/` on GitHub Pages.
-
-If the API section appears empty on the published site, make sure the Doxygen step ran before `mkdocs build`.
+## Outputs
+- Doxygen XML: `docs/doxygen/xml/` (consumed by Breathe).
+- Doxygen HTML: `docs/doxygen/html/` (optional raw Doxygen output).
+- Sphinx HTML site: `docs/_build/html/` (what GitHub Pages publishes).

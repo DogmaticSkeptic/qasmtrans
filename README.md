@@ -10,11 +10,11 @@ QASM circuits, please check our [QASMBench](https://github.com/pnnl/qasmbench).
 Please check our paper for details and performance: https://arxiv.org/pdf/2308.07581.pdf
 
 ## Documentation
-This repository ships MkDocs + mkdocs-material docs and a Doxygen-generated API reference. To build locally:
+This repository ships Sphinx (with Furo) for the site plus a Doxygen-generated API reference (rendered via Breathe). To build locally:
 ```bash
 pip install -r docs/requirements.txt
 doxygen docs/Doxyfile
-mkdocs serve
+sphinx-build -b html docs/sphinx docs/_build/html
 ```
 GitHub Pages publishing is configured in `.github/workflows/docs.yml`; enable Pages from GitHub Actions in your fork to preview the site.
 

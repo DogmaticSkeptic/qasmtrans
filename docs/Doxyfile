@@ -1,7 +1,7 @@
 # Doxygen configuration for QASMTrans
 
 PROJECT_NAME           = "QASMTrans"
-OUTPUT_DIRECTORY       = docs/reference
+OUTPUT_DIRECTORY       = docs/doxygen
 INPUT                  = include src
 FILE_PATTERNS          = *.h *.hpp *.cpp
 RECURSIVE              = YES
