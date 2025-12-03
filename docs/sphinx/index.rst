@@ -10,5 +10,10 @@ QASMTrans is a C++ quantum transpiler that maps OpenQASM circuits onto specific 
    :caption: Contents
 
    getting-started
+   pulses
+   branch-changes
+   benchmarking
+   device-pulse-fab
+   python-api
    api
    dev-notes
