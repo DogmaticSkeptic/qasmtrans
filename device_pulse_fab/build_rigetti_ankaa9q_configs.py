@@ -109,6 +109,11 @@ def filter_devicelib(devicelib_doc: dict, selected_qubits: List[int], mapping: D
     return filtered
 
 
+def drop_two_qubit_gate_entries(map_obj: dict) -> dict:
+    """Remove two-qubit gate metadata (e.g., iswap0_1) when coupling is disabled."""
+    return {k: v for k, v in map_obj.items() if "_" not in str(k)}
+
+
 def build_device_document(devicelib_doc: dict) -> Tuple[dict, Dict[str, float], Dict[str, float]]:
     meta_keys = [
         "data_source",
@@ -167,7 +172,8 @@ def gaussian_envelope(duration_ns: float, dt_ns: float, sigma_frac: float) -> Tu
 def rx_waveform(theta: float, duration_ns: float, dt_ns: float, sigma_frac: float) -> Tuple[np.ndarray, np.ndarray, float, float]:
     times, envelope = gaussian_envelope(duration_ns, dt_ns, sigma_frac)
     dt = dt_ns * 1e-9
-    area = float(np.trapezoid(envelope, dx=dt))
+    # numpy 1.24 lacks np.trapezoid; np.trapz is equivalent here
+    area = float(np.trapz(envelope, dx=dt))
     if area <= EPS:
         raise ValueError("Gaussian envelope area is zero; check dt_ns and duration_ns")
     amplitude = theta / area
@@ -625,7 +631,7 @@ def omega_gaussian_for_rotation(theta, duration, dt, sigma_frac):
     t = make_time_grid(dt, duration)
     sigma = sigma_frac * duration
     g = gaussian_centered(t, duration, sigma)
-    area = float(np.trapezoid(g, dx=dt))
+    area = float(np.trapz(g, dx=dt))
     A = theta / area
     return t, A * g, A, sigma
 
@@ -729,14 +735,14 @@ def run_iswap(duration_ns, dt_ns=DT_NS, pulse_entry: dict | None = None):
         duration_ns = duration * 1e9
         t, samples_i, samples_q, dt = extract_waveform(pulse_entry)
         J = {LEGACY_EDGE: samples_i}
-        theta_actual = float(calib_entry.get("theta_actual_rad", np.trapezoid(samples_i, dx=dt)))
+        theta_actual = float(calib_entry.get("theta_actual_rad", np.trapz(samples_i, dx=dt)))
         params = {
             "type": pulse_entry.get("waveform_type", "flat_top"),
             "edge": [int(LEGACY_EDGE[0]), int(LEGACY_EDGE[1])],
             "duration_ns": float(duration_ns),
             "dt_ns": float(dt * 1e9),
             "J_amp_rad_per_s": float(calib_entry.get("J_amp_rad_per_s", np.max(np.abs(samples_i)))),
-            "J_area_rad": float(calib_entry.get("J_area_rad", np.trapezoid(samples_i, dx=dt))),
+            "J_area_rad": float(calib_entry.get("J_area_rad", np.trapz(samples_i, dx=dt))),
             "theta": float(calib_entry.get("theta_actual_rad", theta_actual)),
             "theta_actual_rad": float(theta_actual),
             "expected_fidelity": calib_entry.get("expected_fidelity"),
@@ -1067,6 +1073,9 @@ def test_random_su4(pulses_map, num_tests=5, depth=4, dt_ns=DT_NS, sigma_frac=SI
 
 def run_legacy_validations(pulses):
     pulses_map = build_pulse_index(pulses)
+    if "iswap_q0_q1" not in pulses_map:
+        print("\nLegacy calibration diagnostics skipped: no two-qubit pulses present.")
+        return
     entry_rx_pi_q0 = pulses_map["rx_q0_pi"]
     theta_rx_pi = float(entry_rx_pi_q0.get("parameters", {}).get("theta", np.pi))
     dur_rx_pi = float(entry_rx_pi_q0.get("calibration", {}).get("duration_ns", 25.0))
@@ -1157,6 +1166,11 @@ def main() -> None:
     parser.add_argument("--out-device", type=Path, help="Output path for generated device JSON")
     parser.add_argument("--out-pulses", type=Path, help="Output path for generated pulse JSON")
     parser.add_argument(
+        "--no-coupling",
+        action="store_true",
+        help="Drop all two-qubit couplings and related iswap pulses (single-qubit only).",
+    )
+    parser.add_argument(
         "--ideal-gates",
         action="store_true",
         help="Generate idealized pulse/device configs with unity fidelities and zero gate errors.",
@@ -1189,6 +1203,12 @@ def main() -> None:
 
     mapping = {old: new for new, old in enumerate(selected_qubits)}
     filtered_devicelib = filter_devicelib(devicelib_doc, selected_qubits, mapping)
+    if args.no_coupling:
+        filtered_devicelib["coupling"] = []
+        for field in ("gate_lens", "gate_errs"):
+            if field in filtered_devicelib and isinstance(filtered_devicelib[field], dict):
+                filtered_devicelib[field] = drop_two_qubit_gate_entries(filtered_devicelib[field])
+
     device_doc, gate_lens, gate_errs = build_device_document(filtered_devicelib)
 
     if args.ideal_gates:
@@ -1213,6 +1233,9 @@ def main() -> None:
     metadata["num_qubits"] = num_qubits
     metadata["coupling"] = filtered_devicelib.get("coupling", [])
     metadata["basis_gates"] = filtered_devicelib.get("basis_gates", metadata.get("basis_gates", []))
+    if args.no_coupling:
+        device_doc["basis_gates"] = [g for g in device_doc.get("basis_gates", []) if "iswap" not in str(g).lower()]
+        metadata["basis_gates"] = [g for g in metadata.get("basis_gates", []) if "iswap" not in str(g).lower()]
 
     pulses, fidelity_map = build_pulse_library(
         device_doc["metadata"],

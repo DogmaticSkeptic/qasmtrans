@@ -1,0 +1,7 @@
+# Minimal dependencies to build/install the local qasmtrans wheel via `pip install .`
+cmake>=3.20
+scikit-build-core>=0.8.0
+pybind11>=2.12.0
+setuptools>=61
+wheel
+numpy>=1.24

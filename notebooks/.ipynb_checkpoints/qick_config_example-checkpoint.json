@@ -1,0 +1,13 @@
+{
+  "qubit_gen_map": {
+    "0": 0,
+    "1": 1
+  },
+  "pulse_freq": 4000000000.0,
+  "pulse_gain_scale": 30000,
+  "default_gain": 12000,
+  "nqz": 2,
+  "relax_delay": 1.0,
+  "enable_readout": false,
+  "default_phase_deg": 0.0
+}
