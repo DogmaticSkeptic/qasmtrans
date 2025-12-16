@@ -54,6 +54,7 @@ Release/
 x64/
 x86/
 *.dir/
+docs/
 
 # Output files
 data/output/
