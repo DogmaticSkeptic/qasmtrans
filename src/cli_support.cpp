@@ -29,9 +29,11 @@ namespace
         case 2:
             return {"rx", "rz", "zz"};
         case 3:
-            return {"rx", "ry", "cz"};
+            return {"rx", "ry", "rz", "cz"};
         case 4:
-            return {"cz", "rx", "ry", "rz", "h"};
+            return {"prx", "cz", "rx", "ry", "rz", "h"};
+        case 5:
+            return {"prx", "cx"};
         default:
             return {};
         }
@@ -399,6 +401,27 @@ namespace QASMTrans
                             }
                         }
                     };
+                    auto ingest_gate_lens = [&](const json &obj)
+                    {
+                        if (!obj.is_object())
+                        {
+                            return;
+                        }
+                        for (auto it = obj.begin(); it != obj.end(); ++it)
+                        {
+                            const std::string key = it.key();
+                            size_t first_digit = key.find_first_of("0123456789");
+                            if (first_digit == std::string::npos)
+                            {
+                                continue;
+                            }
+                            std::string gate = to_lower(key.substr(0, first_digit));
+                            if (!gate.empty())
+                            {
+                                device_basis_gates.insert(gate);
+                            }
+                        }
+                    };
                     ingest_basis(backend_config.value("basis_gates", json::array()));
                     if (backend_config.contains("metadata") && backend_config["metadata"].is_object())
                     {
@@ -406,6 +429,10 @@ namespace QASMTrans
                         ingest_aliases(backend_config["metadata"].value("merged_gate_aliases", json::object()));
                     }
                     ingest_aliases(backend_config.value("merged_gate_aliases", json::object()));
+                    if (device_basis_gates.empty())
+                    {
+                        ingest_gate_lens(backend_config.value("gate_lens", json::object()));
+                    }
                 }
             }
             catch (const std::exception &)

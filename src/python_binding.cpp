@@ -58,6 +58,8 @@ struct TranspileResult
     py::object pulse_doc;         // Parsed pulse JSON (None if not produced)
     std::string pulse_path;       // Where the pulse JSON was written (if any)
     std::string log;              // Aggregated log/output
+    std::vector<IdxType> logical_to_physical;  // Logical -> physical mapping after routing
+    std::vector<IdxType> measurement_mapping;  // Mapping used for final measurement ordering
 
     TranspileResult()
         : pulse_doc(py::none())
@@ -115,6 +117,8 @@ namespace
             return 3;
         if (lowered == "quafu")
             return 4;
+        if (lowered == "iqm")
+            return 5;
         throw std::invalid_argument("Unknown mode '" + lowered + "'");
     }
 
@@ -184,6 +188,27 @@ namespace
                     }
                 }
             };
+            auto ingest_gate_lens = [&](const nlohmann::json &obj)
+            {
+                if (!obj.is_object())
+                {
+                    return;
+                }
+                for (auto it = obj.begin(); it != obj.end(); ++it)
+                {
+                    const std::string key = it.key();
+                    size_t first_digit = key.find_first_of("0123456789");
+                    if (first_digit == std::string::npos)
+                    {
+                        continue;
+                    }
+                    std::string gate = to_lower(key.substr(0, first_digit));
+                    if (!gate.empty())
+                    {
+                        g_device_basis_gates.insert(gate);
+                    }
+                }
+            };
             ingest_basis(backend_config.value("basis_gates", nlohmann::json::array()));
             if (backend_config.contains("metadata") && backend_config["metadata"].is_object())
             {
@@ -191,6 +216,10 @@ namespace
                 ingest_aliases(backend_config["metadata"].value("merged_gate_aliases", nlohmann::json::object()));
             }
             ingest_aliases(backend_config.value("merged_gate_aliases", nlohmann::json::object()));
+            if (g_device_basis_gates.empty())
+            {
+                ingest_gate_lens(backend_config.value("gate_lens", nlohmann::json::object()));
+            }
         }
         catch (const std::exception &ex)
         {
@@ -317,18 +346,44 @@ namespace
                        options.disable_mapomatic,
                        options.mapomatic_limit);
 
+            result.logical_to_physical = circuit->get_mapping();
+
             // Build measurement mapping if needed (single-circuit case).
             std::vector<IdxType> measurement = build_measurement_mapping(cregs, circuit->get_mapping());
             if (!measurement.empty())
             {
                 circuit->set_mapping(measurement);
+                result.measurement_mapping = measurement;
             }
 
-            std::string qasm_path = dumpQASM(circuit,
-                                             input_path.filename().c_str(),
-                                             options.output_path,
-                                             options.verbose,
-                                             mode);
+            std::vector<QASMTrans::Gate> expanded_gates;
+            bool rigetti_mode = false;
+            if (!options.pulse_template_path.empty())
+            {
+                expanded_gates = QASMTrans::pulses::expandGatesForPulseDump(circuit,
+                                                                             options.backend_config,
+                                                                             options.pulse_template_path,
+                                                                             options.allow_parameterized_merge,
+                                                                             &rigetti_mode);
+            }
+            std::string qasm_path;
+            if (!expanded_gates.empty() && rigetti_mode)
+            {
+                qasm_path = dumpQASMFromGates(circuit,
+                                              expanded_gates,
+                                              input_path.filename().c_str(),
+                                              options.output_path,
+                                              options.verbose,
+                                              mode);
+            }
+            else
+            {
+                qasm_path = dumpQASM(circuit,
+                                     input_path.filename().c_str(),
+                                     options.output_path,
+                                     options.verbose,
+                                     mode);
+            }
             result.output_qasm_path = qasm_path;
             {
                 std::ifstream qasm_in(qasm_path);
@@ -418,7 +473,9 @@ PYBIND11_MODULE(qasmtrans_core, m)
         .def_readonly("pulse_schedule", &TranspileResult::pulse_schedule)
         .def_readonly("pulse_doc", &TranspileResult::pulse_doc)
         .def_readonly("pulse_path", &TranspileResult::pulse_path)
-        .def_readonly("log", &TranspileResult::log);
+        .def_readonly("log", &TranspileResult::log)
+        .def_readonly("logical_to_physical", &TranspileResult::logical_to_physical)
+        .def_readonly("measurement_mapping", &TranspileResult::measurement_mapping);
 
     m.def(
         "transpile_qasm",

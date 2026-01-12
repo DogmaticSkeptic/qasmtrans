@@ -539,6 +539,8 @@ void qasm_parser::generate_circuit(shared_ptr<Circuit> circuit, qasm_gate gate)
         circuit->TDG(qubits[0]);
     else if (gate_name == "RX")
         circuit->RX(params[0], qubits[0]);
+    else if (gate_name == "PRX")
+        circuit->PRX(params[0], params[1], qubits[0]);
     else if (gate_name == "RY")
         circuit->RY(params[0], qubits[0]);
     else if (gate_name == "RZ")

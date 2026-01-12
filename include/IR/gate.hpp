@@ -76,6 +76,11 @@ namespace QASMTrans
          ******************************************/
         RX,
         /******************************************
+         * Phased rotation around X axis
+         * RZ(phi) RX(theta) RZ(-phi)
+         ******************************************/
+        PRX,
+        /******************************************
          * Rotation around Y axis
          * RY = [cos(a/2) -sin(a/2)]
          *      [sin(a/2)  cos(a/2)]
@@ -253,7 +258,7 @@ namespace QASMTrans
     };
 
     // need more
-    static const std::set<OP> varGates = {RX, RY, RZ, RI, U, CU};
+    static const std::set<OP> varGates = {RX, PRX, RY, RZ, RI, U, CU};
 
     // Name of the gate for tracing purpose
     const char *const OP_NAMES[] = {
@@ -268,6 +273,7 @@ namespace QASMTrans
         "TDG",
         "RI",
         "RX",
+        "PRX",
         "RY",
         "RZ",
         "SX",

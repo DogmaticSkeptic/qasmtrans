@@ -45,7 +45,7 @@ string DEFAULT_GATES[] = {
     "U", "U3", "U2", "U1", "X", "Y", "Z", "H",
     "S", "SDG", "T", "TDG", "SX",
     "RX", "RY", "RZ",
-    "CZ", "CX", "CY", "CH",
+    "CZ", "CX", "CY", "CH", "PRX",
     "CCX", "CRX", "CRY", "CRZ", "CU1", "CU3",
     "RESET", "SWAP", "ISWAP", "CSWAP",
     "ID", "RI", "P", "CS", "CSDG", "CT", "CTDG", "CSX", "CP",

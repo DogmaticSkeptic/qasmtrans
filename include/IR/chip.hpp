@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <vector>
 #include <string>
 #include <fstream>
@@ -92,7 +93,11 @@ namespace QASMTrans
             throw logic_error("Device config file not found at " + backendpath);
         json backend_config = json::parse(f);
         vector<pair<IdxType, IdxType>> pairs;
+        IdxType chip_qubit_num = backend_config["num_qubits"];
         auto cx_coupling = backend_config["cx_coupling"];
+        unordered_set<IdxType> connected;
+        connected.reserve(static_cast<size_t>(chip_qubit_num));
+        bool has_cx_coupling = cx_coupling.is_array() && !cx_coupling.empty();
         // Iterate over the array
         for (const auto &item : cx_coupling)
         {
@@ -106,12 +111,30 @@ namespace QASMTrans
             if (!limited_arc)
             {
                 pairs.push_back(make_pair(first, second));
+                connected.insert(first);
+                connected.insert(second);
             }
             else
             {
                 if (first < qubit_num && second < qubit_num)
                 {
                     pairs.push_back(make_pair(first, second));
+                    connected.insert(first);
+                    connected.insert(second);
+                }
+            }
+        }
+        IdxType expected_qubits = limited_arc ? std::min(qubit_num, chip_qubit_num) : chip_qubit_num;
+        if (has_cx_coupling && expected_qubits > 1)
+        {
+            for (IdxType q = 0; q < expected_qubits; ++q)
+            {
+                if (!connected.count(q))
+                {
+                    std::ostringstream msg;
+                    msg << "Disconnected qubit " << q << " in cx_coupling; "
+                        << "cx_coupling must include each qubit at least once.";
+                    throw logic_error(msg.str());
                 }
             }
         }
@@ -145,7 +168,6 @@ namespace QASMTrans
         vector<vector<IdxType>> distance_mat(vertices.size(), vector<IdxType>(vertices.size(), 0));
         distance_mat = floyd(vertices.size(), adj_mat);
         shared_ptr<Chip> chip = make_shared<Chip>(distance_mat.size(), adj_mat, edge_list, distance_mat);
-        auto chip_qubit_num = backend_config["num_qubits"];
         chip->chip_qubit_num = chip_qubit_num;
         chip->single_qubit_errors.assign(chip->chip_qubit_num, {});
         chip->single_qubit_gate_lengths.assign(chip->chip_qubit_num, {});

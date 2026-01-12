@@ -341,6 +341,12 @@ namespace QASMTrans
             Gate G(OP::RX, qubit, -1, -1, 1, theta);
             gates->push_back(G);
         }
+        void PRX(ValType theta, ValType phi, IdxType qubit)
+        {
+            // Phased rotation around X: RZ(phi) RX(theta) RZ(-phi)
+            Gate G(OP::PRX, qubit, -1, -1, 1, theta, phi);
+            gates->push_back(G);
+        }
         void RY(ValType theta, IdxType qubit)
         {
             // Rotation around Y axis

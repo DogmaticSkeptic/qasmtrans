@@ -46,8 +46,13 @@ namespace QASMTrans
             std::string note;
             std::vector<ValType> samples_i;
             std::vector<ValType> samples_q;
+            std::vector<ValType> samples_i1;
+            std::vector<ValType> samples_q1;
+            std::vector<ValType> samples_z;
+            std::vector<ValType> samples_g01;
             bool is_virtual = false;
             std::map<std::string, ValType> parameters;
+            json parameters_json = json::object();
         };
 
         struct PulseTemplateLibrary
@@ -170,6 +175,7 @@ namespace QASMTrans
             }
             return qubits;
         }
+
 
         inline ValType rigettiThetaForGate(const Gate &gate, bool rigetti_mode)
         {
@@ -316,9 +322,17 @@ namespace QASMTrans
                 {
                     for (auto it = entry["parameters"].begin(); it != entry["parameters"].end(); ++it)
                     {
+                        if (it.value().is_null())
+                        {
+                            continue;
+                        }
                         if (it.value().is_number())
                         {
                             definition.parameters.emplace(it.key(), it.value().get<ValType>());
+                        }
+                        else
+                        {
+                            definition.parameters_json[it.key()] = it.value();
                         }
                     }
                 }
@@ -329,6 +343,22 @@ namespace QASMTrans
                 if (entry.contains("samples_q") && entry["samples_q"].is_array())
                 {
                     definition.samples_q = entry["samples_q"].get<std::vector<ValType>>();
+                }
+                if (entry.contains("samples_i1") && entry["samples_i1"].is_array())
+                {
+                    definition.samples_i1 = entry["samples_i1"].get<std::vector<ValType>>();
+                }
+                if (entry.contains("samples_q1") && entry["samples_q1"].is_array())
+                {
+                    definition.samples_q1 = entry["samples_q1"].get<std::vector<ValType>>();
+                }
+                if (entry.contains("samples_z") && entry["samples_z"].is_array())
+                {
+                    definition.samples_z = entry["samples_z"].get<std::vector<ValType>>();
+                }
+                if (entry.contains("samples_g01") && entry["samples_g01"].is_array())
+                {
+                    definition.samples_g01 = entry["samples_g01"].get<std::vector<ValType>>();
                 }
                 if (definition.gate.empty() || definition.qubits.empty())
                 {
@@ -387,6 +417,88 @@ namespace QASMTrans
                 }
             }
             return data;
+        }
+
+        inline std::vector<Gate> expandGatesForPulseDump(std::shared_ptr<Circuit> circuit,
+                                                         const std::string &backend_path,
+                                                         const std::string &pulse_template_path,
+                                                         bool allow_parameterized_candidates,
+                                                         bool *rigetti_mode_out = nullptr)
+        {
+            PulseTemplateLibrary library = loadPulseTemplate(pulse_template_path);
+            BackendTimingData backend = loadBackendTiming(backend_path);
+            const bool rigetti_mode = containsRigettiTag(library.name) ||
+                                      containsRigettiTag(backend.name) ||
+                                      containsRigettiTag(pulse_template_path);
+            if (rigetti_mode_out)
+            {
+                *rigetti_mode_out = rigetti_mode;
+            }
+
+            const std::map<std::string, std::vector<PulseDefinition>> &definitions = library.definitions;
+            const std::vector<Gate> original_gates = circuit->get_gates();
+            std::vector<Gate> gates;
+            gates.reserve(original_gates.size() * 5);
+
+            auto hasMatchingPulse = [&](const Gate &candidate_gate, const std::string &gate_name, const std::vector<IdxType> &qubits) -> bool
+            {
+                const std::string key = makePulseKey(gate_name, qubits);
+                auto def_it = definitions.find(key);
+                if (def_it == definitions.end())
+                {
+                    if (qubits.size() > 1)
+                    {
+                        std::vector<IdxType> sorted = qubits;
+                        std::sort(sorted.begin(), sorted.end());
+                        if (sorted != qubits)
+                        {
+                            const std::string sorted_key = makePulseKey(gate_name, sorted);
+                            def_it = definitions.find(sorted_key);
+                        }
+                    }
+                    if (def_it == definitions.end())
+                    {
+                        return false;
+                    }
+                }
+                return selectPulseDefinition(def_it->second, candidate_gate, gate_name, rigetti_mode) != nullptr;
+            };
+
+            for (const auto &gate : original_gates)
+            {
+                std::string gate_name_raw = gate.lower_name();
+                std::string gate_name_canonical = canonicalGateForRigetti(gate_name_raw, rigetti_mode);
+                Gate gate_adjusted = gate;
+                gate_adjusted.theta = rigettiThetaForGate(gate, rigetti_mode);
+                ValType effective_theta = gate_adjusted.theta;
+                if (gate_name_canonical == "rx")
+                {
+                    std::vector<IdxType> qubits = extractGateQubits(gate);
+                    if (!hasMatchingPulse(gate_adjusted, gate_name_canonical, qubits))
+                    {
+                        IdxType target = qubits.empty() ? gate.qubit : qubits.front();
+                        Gate rz1(OP::RZ, target, -1, -1, 1, -PI / 2.0);
+                        rz1.inherit_logical_metadata(gate);
+                        gates.push_back(rz1);
+                        Gate rx1(OP::RX, target, -1, -1, 1, PI / 2.0);
+                        rx1.inherit_logical_metadata(gate);
+                        gates.push_back(rx1);
+                        Gate rz2(OP::RZ, target, -1, -1, 1, effective_theta);
+                        rz2.inherit_logical_metadata(gate);
+                        gates.push_back(rz2);
+                        Gate rx2(OP::RX, target, -1, -1, 1, -PI / 2.0);
+                        rx2.inherit_logical_metadata(gate);
+                        gates.push_back(rx2);
+                        Gate rz3(OP::RZ, target, -1, -1, 1, PI / 2.0);
+                        rz3.inherit_logical_metadata(gate);
+                        gates.push_back(rz3);
+                        continue;
+                    }
+                }
+                gates.push_back(gate_adjusted);
+            }
+
+            return gates;
         }
 
     } // namespace pulses
@@ -716,12 +828,16 @@ namespace QASMTrans
                 {
                     entry["virtual"] = true;
                 }
-                if (!definition.parameters.empty())
+                if (!definition.parameters.empty() || !definition.parameters_json.empty())
                 {
                     json param_obj = json::object();
                     for (const auto &param : definition.parameters)
                     {
                         param_obj[param.first] = param.second;
+                    }
+                    for (auto it = definition.parameters_json.begin(); it != definition.parameters_json.end(); ++it)
+                    {
+                        param_obj[it.key()] = it.value();
                     }
                     entry["parameters"] = param_obj;
                 }
@@ -732,6 +848,22 @@ namespace QASMTrans
                 if (!definition.samples_q.empty())
                 {
                     entry["samples_q"] = definition.samples_q;
+                }
+                if (!definition.samples_i1.empty())
+                {
+                    entry["samples_i1"] = definition.samples_i1;
+                }
+                if (!definition.samples_q1.empty())
+                {
+                    entry["samples_q1"] = definition.samples_q1;
+                }
+                if (!definition.samples_z.empty())
+                {
+                    entry["samples_z"] = definition.samples_z;
+                }
+                if (!definition.samples_g01.empty())
+                {
+                    entry["samples_g01"] = definition.samples_g01;
                 }
                 pulse_library.push_back(entry);
             }

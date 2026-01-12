@@ -158,4 +158,5 @@ void transpiler(shared_ptr<Circuit> circuit,
         cout << "STEP-4. Basis gate decomposition time: " << format_ms(decompose_time) << "ms" << endl;
         cout << " total QASMTrans time: " << format_ms(initial_decompose_time + routing_time + decompose_time) << "ms" << endl;
     }
+
 }

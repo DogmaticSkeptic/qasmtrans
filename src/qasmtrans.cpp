@@ -94,7 +94,7 @@ namespace
         std::cout << "-limited          Limit qubit usage to circuit than device. "
                   << "It reduces qubit usage but may introduce extra routing cost or unable to route" << std::endl;
         std::cout << "-backend_list     Print the available device backends" << std::endl;
-        std::cout << "-m <name>         Set the transpiler targeted device, default is ibmq" << std::endl;
+        std::cout << "-m <name>         Set the transpiler targeted device (ibmq, ionq, quantinuum, rigetti, quafu, iqm), default is ibmq" << std::endl;
         std::cout << "-v <0/1/2>        Set the output level, default is 0" << std::endl;
         std::cout << "-full_fidelity    Score Mapomatic candidates on the entire circuit instead of its critical path" << std::endl;
         std::cout << "-cp_mode <product|hybrid>  Choose scoring strategy (default product)" << std::endl;
@@ -379,6 +379,10 @@ bool parse_cli(int argc, char **argv, CliConfig &config, int &exit_code)
         else if (config.mode_name == "Quafu" || config.mode_name == "quafu")
         {
             config.mode = 4;
+        }
+        else if (config.mode_name == "IQM" || config.mode_name == "iqm")
+        {
+            config.mode = 5;
         }
         else
         {
@@ -754,7 +758,29 @@ OutputArtifacts emit_outputs(const CliConfig &config,
                   << " depth=" << summary.depth << std::endl;
     }
 
-    outputs.qasm_path = dumpQASM(combined_circuit, input_files.front().c_str(), requested_output_path, config.debug_level, config.mode);
+    std::vector<QASMTrans::Gate> expanded_gates;
+    bool rigetti_mode = false;
+    if (!config.pulse_template_path.empty())
+    {
+        expanded_gates = QASMTrans::pulses::expandGatesForPulseDump(combined_circuit,
+                                                                     config.backendpath,
+                                                                     config.pulse_template_path,
+                                                                     config.allow_parameterized_merge_candidates,
+                                                                     &rigetti_mode);
+    }
+    if (!expanded_gates.empty() && rigetti_mode)
+    {
+        outputs.qasm_path = dumpQASMFromGates(combined_circuit,
+                                              expanded_gates,
+                                              input_files.front().c_str(),
+                                              requested_output_path,
+                                              config.debug_level,
+                                              config.mode);
+    }
+    else
+    {
+        outputs.qasm_path = dumpQASM(combined_circuit, input_files.front().c_str(), requested_output_path, config.debug_level, config.mode);
+    }
     std::cout << "Saving output qasm to: " << outputs.qasm_path << std::endl;
 
     // Optional pulse dump.
