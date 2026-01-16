@@ -10,6 +10,7 @@
 #include <map>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -612,7 +613,8 @@ CombinedArtifacts transpile_and_merge(const std::vector<std::shared_ptr<Circuit>
                    config.use_full_fidelity,
                    config.cp_mode,
                    config.disable_mapomatic,
-                   config.mapomatic_limit);
+                   config.mapomatic_limit,
+                   std::nullopt);
 
         // Capture per-circuit artifacts before we rewrite everything to global space.
         std::vector<IdxType> local_mapping = circuit->get_mapping();

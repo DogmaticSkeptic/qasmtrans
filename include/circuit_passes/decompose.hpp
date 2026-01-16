@@ -197,10 +197,8 @@ vector<Gate> decomposeRzToPrxOnly(ValType theta, IdxType qubit)
 vector<Gate> decomposeRyToPrx(ValType theta, IdxType qubit)
 {
     vector<Gate> decomposedGates;
-    // RY(theta) = RZ(-pi/2) PRX(theta, pi/2) RZ(pi/2)
-    decomposedGates.push_back(BasicRZ(-PI / 2, qubit));
+    // RY(theta) = PRX(theta, pi/2)
     decomposedGates.push_back(Gate(OP::PRX, qubit, -1, -1, 1, theta, PI / 2));
-    decomposedGates.push_back(BasicRZ(PI / 2, qubit));
     return decomposedGates;
 }
 vector<Gate> decomposeSxToPrx(IdxType qubit)
@@ -218,10 +216,10 @@ vector<Gate> decomposeXToPrx(IdxType qubit)
 vector<Gate> decomposeHToPrx(IdxType qubit)
 {
     vector<Gate> decomposedGates;
-    // H = RZ(pi) RY(pi/2) up to global phase; map to PRX
-    decomposedGates.push_back(BasicRZ(PI, qubit));
+    // H = RY(pi/2) RZ(pi) up to global phase; map to PRX
     vector<Gate> ry = decomposeRyToPrx(PI / 2, qubit);
     decomposedGates.insert(decomposedGates.end(), ry.begin(), ry.end());
+    decomposedGates.push_back(BasicRZ(PI, qubit));
     return decomposedGates;
 }
 vector<Gate> decomposePRX(ValType theta, ValType phi, IdxType qubit)

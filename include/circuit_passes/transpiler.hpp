@@ -1,16 +1,17 @@
 #pragma once
 
 #include <algorithm>
-#include <cmath>
-#include <iostream>
-#include <fstream>
-#include <sstream>
-#include <iomanip>
-#include <string>
-#include <cstring>
-#include <vector>
 #include <bitset>
 #include <cctype>
+#include <cmath>
+#include <cstring>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <vector>
 
 #include "../QASMTransPrimitives.hpp"
 
@@ -85,7 +86,8 @@ void transpiler(shared_ptr<Circuit> circuit,
                 bool use_full_fidelity,
                 CriticalPathHeuristicMode cp_mode,
                 bool disable_mapomatic,
-                std::size_t mapomatic_max_embeddings)
+                std::size_t mapomatic_max_embeddings,
+                std::optional<uint64_t> routing_seed = std::nullopt)
 {
     circuit->set_creg(list_cregs);
     IdxType n_qubits = IdxType(circuit->num_qubits());
@@ -122,7 +124,7 @@ void transpiler(shared_ptr<Circuit> circuit,
     //======================================== STEP-2: Routing and Mapping ============================================
     cpu_timer routing_timer;
     routing_timer.start_timer();
-    Routing(circuit, chip, debug_level);
+    Routing(circuit, chip, debug_level, routing_seed);
     routing_timer.stop_timer();
     double routing_time = routing_timer.measure();
     if (debug_level > 0)

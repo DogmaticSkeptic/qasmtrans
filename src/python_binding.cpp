@@ -13,6 +13,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <chrono>
+#include <optional>
 #include <ostream>
 #include <unistd.h>
 
@@ -47,6 +48,7 @@ struct TranspileOptions
     bool full_fidelity = false;
     bool allow_parameterized_merge = true;
     std::size_t mapomatic_limit = 1000;
+    long long seed = -1; // Deterministic routing seed; <0 uses random device
     int verbose = 0;
 };
 
@@ -336,6 +338,11 @@ namespace
             }
 
             CriticalPathHeuristicMode cp_mode = CriticalPathHeuristicMode::LogProduct;
+            std::optional<uint64_t> routing_seed;
+            if (options.seed >= 0)
+            {
+                routing_seed = static_cast<uint64_t>(options.seed);
+            }
             transpiler(circuit,
                        chip,
                        cregs,
@@ -344,7 +351,8 @@ namespace
                        options.full_fidelity,
                        cp_mode,
                        options.disable_mapomatic,
-                       options.mapomatic_limit);
+                       options.mapomatic_limit,
+                       routing_seed);
 
             result.logical_to_physical = circuit->get_mapping();
 
@@ -464,6 +472,7 @@ PYBIND11_MODULE(qasmtrans_core, m)
         .def_readwrite("full_fidelity", &TranspileOptions::full_fidelity)
         .def_readwrite("allow_parameterized_merge", &TranspileOptions::allow_parameterized_merge)
         .def_readwrite("mapomatic_limit", &TranspileOptions::mapomatic_limit)
+        .def_readwrite("seed", &TranspileOptions::seed)
         .def_readwrite("verbose", &TranspileOptions::verbose);
 
     py::class_<TranspileResult>(m, "TranspileResult", "Outputs from a transpilation run.")

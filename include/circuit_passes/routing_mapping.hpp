@@ -1,9 +1,10 @@
 #pragma once
 
-#include <random>
-#include <string>
 #include <algorithm>
 #include <cctype>
+#include <optional>
+#include <random>
+#include <string>
 
 #include "../QASMTransPrimitives.hpp"
 
@@ -726,7 +727,7 @@ IdxType one_round_optimization(
 }
 
 void Routing(shared_ptr<Circuit> circuit, shared_ptr<Chip> chip,
-             IdxType debug_level) {
+             IdxType debug_level, std::optional<uint64_t> seed = std::nullopt) {
   IdxType n_qubits = IdxType(circuit->num_qubits());
   vector<Gate> gate_info = circuit->get_gates();
 
@@ -740,8 +741,13 @@ void Routing(shared_ptr<Circuit> circuit, shared_ptr<Chip> chip,
   // ^ prepare initial mapping, which is random at the first random
   vector<IdxType> initial_mapping(n_qubits, 0);
   iota(initial_mapping.begin(), initial_mapping.end(), 0);
-  random_device rd;
-  mt19937 g(rd());
+  mt19937 g;
+  if (seed.has_value()) {
+    g.seed(static_cast<mt19937::result_type>(*seed));
+  } else {
+    random_device rd;
+    g.seed(rd());
+  }
   shuffle(initial_mapping.begin(), initial_mapping.end(), g);
   if (debug_level > 1)
     cout << "******* 1st round sabre optimization *******" << endl;
