@@ -6,10 +6,15 @@
 #include <memory>
 #include <cmath>
 #include <map>
+#include <algorithm>
+#include <limits>
+#include <set>
+#include <unordered_map>
 
 #include "../QASMTransPrimitives.hpp"
 #include "../parser/parser_util.hpp"
 #include "gate.hpp"
+#include "graph.hpp"
 
 using namespace std;
 
@@ -20,13 +25,20 @@ namespace QASMTrans
     private:
         // number of qubits
         IdxType n_qubits;
+        std::vector<IdxType> critical_path_gate_indices;
+        double critical_path_latency;
+        IdxType routing_swap_count = 0;
 
     public:
         // user input gate sequence
         std::shared_ptr<std::vector<Gate>> gates;
         map<string, creg> list_cregs;
         std::vector<IdxType> initial_mapping;
-        Circuit(IdxType _n_qubits) : n_qubits(_n_qubits)
+        std::vector<std::vector<IdxType>> adj_mat;
+        std::vector<std::vector<IdxType>> edge_list;
+        std::vector<std::vector<IdxType>> distance_mat;
+
+        Circuit(IdxType _n_qubits) : n_qubits(_n_qubits), critical_path_latency(0.0)
         {
             // Implementation of constructor
             gates = std::make_shared<std::vector<Gate>>();
@@ -42,6 +54,7 @@ namespace QASMTrans
         }
         void set_gates(std::vector<Gate> new_gates)
         {
+            clear_critical_path();
             gates = std::make_shared<std::vector<Gate>>(new_gates);
             // auto-update number of qubits based on maximum gate index encountered
             IdxType max_q = -1;
@@ -79,11 +92,133 @@ namespace QASMTrans
         {
             return this->list_cregs;
         }
+        void populate_connectivity()
+        {
+            if (!gates)
+            {
+                adj_mat.clear();
+                edge_list.clear();
+                distance_mat.clear();
+                return;
+            }
+
+            std::vector<IdxType> mapping = initial_mapping;
+            if (mapping.empty())
+            {
+                mapping.resize(n_qubits);
+                for (IdxType i = 0; i < n_qubits; ++i)
+                {
+                    mapping[i] = i;
+                }
+            }
+
+            std::vector<IdxType> nodes = mapping;
+            std::sort(nodes.begin(), nodes.end());
+            nodes.erase(std::unique(nodes.begin(), nodes.end()), nodes.end());
+
+            if (nodes.empty())
+            {
+                adj_mat.clear();
+                edge_list.clear();
+                distance_mat.clear();
+                return;
+            }
+
+            std::unordered_map<IdxType, IdxType> node_to_index;
+            // Record a zero-based index for each physical qubit present in the mapping.
+            for (IdxType i = 0; i < static_cast<IdxType>(nodes.size()); ++i)
+            {
+                node_to_index[nodes[i]] = i;
+            }
+
+            IdxType matrix_size = static_cast<IdxType>(nodes.size());
+            adj_mat.assign(matrix_size, std::vector<IdxType>(matrix_size, 0));
+            edge_list.assign(matrix_size, {});
+            const IdxType inf = std::numeric_limits<IdxType>::max() / 2;
+            distance_mat.assign(matrix_size, std::vector<IdxType>(matrix_size, inf));
+            // Initialise distance diagonal to zero.
+            for (IdxType i = 0; i < matrix_size; ++i)
+            {
+                distance_mat[i][i] = 0;
+            }
+
+            // Add an undirected edge for each two-qubit interaction encountered in the gate list.
+            for (const auto &gate : *gates)
+            {
+                if (gate.ctrl < 0 || gate.qubit < 0)
+                {
+                    continue;
+                }
+                if (gate.ctrl >= static_cast<IdxType>(mapping.size()) || gate.qubit >= static_cast<IdxType>(mapping.size()))
+                {
+                    continue;
+                }
+
+                IdxType ctrl_qubit = mapping[gate.ctrl];
+                IdxType target_qubit = mapping[gate.qubit];
+                auto ctrl_it = node_to_index.find(ctrl_qubit);
+                auto tgt_it = node_to_index.find(target_qubit);
+                if (ctrl_it == node_to_index.end() || tgt_it == node_to_index.end())
+                {
+                    continue;
+                }
+
+                IdxType u = ctrl_it->second;
+                IdxType v = tgt_it->second;
+                if (u == v)
+                {
+                    continue;
+                }
+
+                adj_mat[u][v] = 1;
+                adj_mat[v][u] = 1;
+                distance_mat[u][v] = 1;
+                distance_mat[v][u] = 1;
+            }
+
+            // Populate edge list neighbours from the adjacency matrix.
+            for (IdxType i = 0; i < matrix_size; ++i)
+            {
+                for (IdxType j = 0; j < matrix_size; ++j)
+                {
+                    if (adj_mat[i][j] == 1)
+                    {
+                        edge_list[i].push_back(j);
+                    }
+                }
+            }
+
+            // Run Floyd–Warshall to fill all-pairs shortest paths.
+            for (IdxType k = 0; k < matrix_size; ++k)
+            {
+                for (IdxType i = 0; i < matrix_size; ++i)
+                {
+                    if (distance_mat[i][k] == inf)
+                    {
+                        continue;
+                    }
+                    for (IdxType j = 0; j < matrix_size; ++j)
+                    {
+                        if (distance_mat[k][j] == inf)
+                        {
+                            continue;
+                        }
+                        IdxType through_k = distance_mat[i][k] + distance_mat[k][j];
+                        if (through_k < distance_mat[i][j])
+                        {
+                            distance_mat[i][j] = through_k;
+                        }
+                    }
+                }
+            }
+        }
         void clear()
         {
             // Implementation of clear function
             gates->clear();
             // n_qubits = 0;
+            clear_critical_path();
+            routing_swap_count = 0;
         }
         void reset()
         {
@@ -97,6 +232,32 @@ namespace QASMTrans
             for (auto gate : *gates)
                 ss << gate.gateToString() << std::endl;
             return ss.str();
+        }
+        void set_critical_path(const std::vector<IdxType> &gate_indices, double total_latency)
+        {
+            critical_path_gate_indices = gate_indices;
+            critical_path_latency = total_latency;
+        }
+        std::vector<IdxType> get_critical_path() const
+        {
+            return critical_path_gate_indices;
+        }
+        double get_critical_path_latency() const
+        {
+            return critical_path_latency;
+        }
+        void clear_critical_path()
+        {
+            critical_path_gate_indices.clear();
+            critical_path_latency = 0.0;
+        }
+        void set_routing_swap_count(IdxType count)
+        {
+            routing_swap_count = count;
+        }
+        IdxType get_routing_swap_count() const
+        {
+            return routing_swap_count;
         }
         // ===================== Standard Gates =========================
         void X(IdxType qubit)
@@ -188,6 +349,12 @@ namespace QASMTrans
                      [-i*sin(a/2) cos(a/2)]
             */
             Gate G(OP::RX, qubit, -1, -1, 1, theta);
+            gates->push_back(G);
+        }
+        void PRX(ValType theta, ValType phi, IdxType qubit)
+        {
+            // Phased rotation around X: RZ(phi) RX(theta) RZ(-phi)
+            Gate G(OP::PRX, qubit, -1, -1, 1, theta, phi);
             gates->push_back(G);
         }
         void RY(ValType theta, IdxType qubit)
@@ -415,6 +582,12 @@ namespace QASMTrans
             Gate G(OP::RZZ, qubit0, qubit1, -1, 2, theta);
             gates->push_back(G);
         }
+        void RZX(ValType theta, IdxType qubit0, IdxType qubit1)
+        {
+            // RZX = exp(-i theta/2 Z⊗X)
+            Gate G(OP::RZX, qubit0, qubit1, -1, 2, theta);
+            gates->push_back(G);
+        }
         void SX(IdxType qubit)
         {
             // sqrt(X) gate, basis gate for IBMQ
@@ -431,6 +604,22 @@ namespace QASMTrans
                       [0 1]
             */
             Gate G(OP::ID, qubit);
+            gates->push_back(G);
+        }
+        void ISWAP(IdxType ctrl, IdxType qubit)
+        {
+            // iSWAP gate swaps amplitudes with phase i
+            /** ISWAP = [1 0 0 0]
+                         [0 0 i 0]
+                         [0 i 0 0]
+                         [0 0 0 1]
+            */
+            Gate G(OP::ISWAP, qubit, ctrl, -1, 2);
+            gates->push_back(G);
+        }
+        void ECR(IdxType ctrl, IdxType qubit)
+        {
+            Gate G(OP::ECR, qubit, ctrl, -1, 2);
             gates->push_back(G);
         }
         void SWAP(IdxType ctrl, IdxType qubit)
