@@ -23,7 +23,6 @@
 #include "../dump_qasm.hpp"
 
 #include "routing_mapping.hpp"
-#include "fast_quality_routing.hpp"
 #include "decompose.hpp"
 #include "optimize_1q.hpp"
 #include "optimize_2q.hpp"
@@ -76,12 +75,24 @@ inline std::string logical_label_for_gate(const Gate &gate)
     return oss.str();
 }
 
-inline void annotate_logical_gates(std::vector<Gate> &gates)
+inline void assign_logical_gate_ids(std::vector<Gate> &gates)
 {
     IdxType next_id = 0;
     for (auto &gate : gates)
     {
-        gate.set_logical_metadata(next_id++, logical_label_for_gate(gate));
+        gate.logical_gate_id = next_id++;
+        gate.logical_label.clear();
+    }
+}
+
+inline void materialize_logical_labels(std::vector<Gate> &gates)
+{
+    for (auto &gate : gates)
+    {
+        if (gate.logical_gate_id >= 0 && gate.logical_label.empty())
+        {
+            gate.logical_label = logical_label_for_gate(gate);
+        }
     }
 }
 
@@ -156,8 +167,7 @@ inline void enforce_cx_direction(std::shared_ptr<Circuit> circuit,
 
 enum class RoutingMode
 {
-    Sabre,
-    FastQuality
+    Sabre
 };
 
 void transpiler(shared_ptr<Circuit> circuit,
@@ -176,7 +186,6 @@ void transpiler(shared_ptr<Circuit> circuit,
                 bool routing_decay,
                 double routing_decay_increment,
                 IdxType routing_decay_reset,
-                IdxType routing_trials,
                 bool enable_sabre_layout,
                 RoutingMode routing_mode,
                 std::size_t fast_quality_max_embeddings,
@@ -209,7 +218,7 @@ void transpiler(shared_ptr<Circuit> circuit,
     double initial_decompose_time = initial_decompose_timer.measure();
     {
         std::vector<Gate> logical_stage_gates = circuit->get_gates();
-        annotate_logical_gates(logical_stage_gates);
+        assign_logical_gate_ids(logical_stage_gates);
         circuit->set_gates(logical_stage_gates);
     }
     if (debug_level > 0)
@@ -219,17 +228,10 @@ void transpiler(shared_ptr<Circuit> circuit,
     cpu_timer routing_timer;
     routing_timer.start_timer();
     (void)enable_sabre_layout;
-    if (routing_mode == RoutingMode::FastQuality)
-    {
-        fast_quality_routing(circuit, chip, debug_level, fast_quality_max_embeddings,
-                             routing_decay, routing_decay_increment, routing_decay_reset,
-                             routing_trials, routing_seed, false);
-    }
-    else
-    {
-        Routing(circuit, chip, debug_level, routing_decay, routing_decay_increment,
-                routing_decay_reset, routing_trials, routing_seed);
-    }
+    (void)routing_mode;
+    (void)fast_quality_max_embeddings;
+    Routing(circuit, chip, debug_level, routing_decay, routing_decay_increment,
+            routing_decay_reset, routing_seed);
     {
         IdxType swap_count = 0;
         IdxType cx_count = 0;
@@ -284,6 +286,11 @@ void transpiler(shared_ptr<Circuit> circuit,
     //======================================== STEP-4: Basis Gate Decomposition =======================================
     cpu_timer decompose_timer;
     decompose_timer.start_timer();
+    {
+        std::vector<Gate> routed_gates = circuit->get_gates();
+        materialize_logical_labels(routed_gates);
+        circuit->set_gates(routed_gates);
+    }
     Decompose(circuit, mode);
     bool can_2q_synth = enable_2q_synth;
 #ifndef QASMTRANS_USE_EIGEN

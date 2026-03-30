@@ -1,0 +1,17 @@
+name,circuit_file,logical_qubits,device_name,status,old_status,new_status,old_attempts,new_attempts,old_time_ms,new_time_ms,old_over_new_time_ratio,old_1q,new_1q,delta_1q_new_minus_old,old_2q,new_2q,delta_2q_new_minus_old,old_depth,new_depth,delta_depth_new_minus_old
+adder_n10,/home/hoyt924.linux/qasmtrans/data/test_benchmark/adder_n10.qasm,10,ibmq_toronto,completed,ok,ok,1,1,2.137680,4.413042,0.48,141,109,-32,134,338,204,224,304,80
+adder_n4,/home/hoyt924.linux/qasmtrans/data/test_benchmark/adder_n4.qasm,4,ibmq_toronto,completed,ok,ok,1,1,1.221097,2.126978,0.57,21,17,-4,19,19,0,28,30,2
+adder_n64,/home/hoyt924.linux/qasmtrans/data/test_benchmark/adder_n64.qasm,64,ibm_brisbane,completed,ok,ok,1,1,41.678817,72.018723,0.58,981,13731,12750,2114,2753,639,1148,3111,1963
+bv_n140,/home/hoyt924.linux/qasmtrans/data/test_benchmark/bv_n140.qasm,140,,skipped_too_wide,,,,,,,,,,,,,,,,
+bwt_n21,/home/hoyt924.linux/qasmtrans/data/test_benchmark/bwt_n21.qasm,21,ibmq_toronto,partial_failure,ok,timeout,1,2,4039.384508,,,520408,,,630584,,,560418,,
+gcm_h6,/home/hoyt924.linux/qasmtrans/data/test_benchmark/gcm_h6.qasm,13,ibmq_toronto,completed,ok,ok,1,1,15.450937,34.895461,0.44,2386,2386,0,1428,3219,1791,2994,4195,1201
+ghz_state_n255,/home/hoyt924.linux/qasmtrans/data/test_benchmark/ghz_state_n255.qasm,255,,skipped_too_wide,,,,,,,,,,,,,,,,
+hhl_n10,/home/hoyt924.linux/qasmtrans/data/test_benchmark/hhl_n10.qasm,10,ibmq_toronto,completed,ok,ok,1,1,974.384773,2843.204980,0.34,202990,156350,-46640,103037,254297,151260,252370,320611,68241
+ising_n420,/home/hoyt924.linux/qasmtrans/data/test_benchmark/ising_n420.qasm,420,,skipped_too_wide,,,,,,,,,,,,,,,,
+qaoa_n6,/home/hoyt924.linux/qasmtrans/data/test_benchmark/qaoa_n6.qasm,6,ibmq_toronto,completed,ok,ok,1,1,4.403255,6.881516,0.64,1224,306,-918,96,144,48,582,215,-367
+qec_sm_n5,/home/hoyt924.linux/qasmtrans/data/test_benchmark/qec_sm_n5.qasm,5,ibmq_toronto,completed,ok,ok,1,1,1.378227,2.141928,0.64,1,1,0,7,10,3,8,11,3
+qft_n320,/home/hoyt924.linux/qasmtrans/data/test_benchmark/qft_n320.qasm,320,,skipped_too_wide,,,,,,,,,,,,,,,,
+sat_n11,/home/hoyt924.linux/qasmtrans/data/test_benchmark/sat_n11.qasm,11,ibmq_toronto,completed,ok,ok,1,1,5.639262,13.807968,0.41,823,505,-318,729,1794,1065,920,1310,390
+square_root_n18,/home/hoyt924.linux/qasmtrans/data/test_benchmark/square_root_n18.qasm,18,ibmq_toronto,completed,ok,ok,1,1,20.099654,49.635545,0.40,2819,1999,-820,2824,6934,4110,3029,4440,1411
+vqe_uccsd_n28,/home/hoyt924.linux/qasmtrans/data/test_benchmark/vqe_uccsd_n28.qasm,28,ibm_brisbane,partial_failure,ok,timeout,1,2,3883.485954,,,514170,,,587153,,,751734,,
+vqe_uccsd_n8,/home/hoyt924.linux/qasmtrans/data/test_benchmark/vqe_uccsd_n8.qasm,8,ibmq_toronto,completed,ok,ok,1,1,60.216877,132.168299,0.46,24136,4434,-19702,6172,21598,15426,14056,17236,3180

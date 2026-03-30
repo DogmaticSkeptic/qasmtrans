@@ -1,0 +1,306 @@
+QASMTrans Old vs New Transpiler Analysis
+Date: 2026-03-25
+
+Scope
+This note compares:
+- old code: /home/hoyt924.linux/qasmtransoriginal/qasmtrans
+- new code: /home/hoyt924.linux/qasmtrans
+
+Benchmark context
+- Benchmark script: /home/hoyt924.linux/qasmtrans/test/benchmarking/compare_qasmtrans_versions.py
+- Result CSV: /home/hoyt924.linux/qasmtrans/data/qasmtrans_old_vs_new_nwqbench.csv
+- Settings used for the direct old-vs-new comparison:
+  - mode: IBMQ
+  - backend configs: current repo IBM Toronto / IBM Brisbane JSON files
+  - new binary run with --disable_mapomatic
+  - no optional optimize flags enabled
+  - 5 s timeout per attempt, 2 retries
+
+Main conclusion
+There are two separate issues:
+
+1. The new code has a real regression risk in the routing layer.
+   The new pipeline is substantially more complex than the old one, and on parseable/completed cases it was slower on every completed comparison and usually produced deeper circuits with more 2-qubit gates.
+
+2. The old code has a real output-validity bug on larger cases.
+   Some old outputs are malformed OpenQASM because the emitted measurement indices can be negative or exceed the declared qreg range. That means the old code cannot simply be treated as the ground truth winner on every large benchmark.
+
+Because of point 2, the raw old-vs-new depth/gate-count numbers are trustworthy on smaller parseable cases, but they are not fully trustworthy on every larger case unless output validity is checked first.
+
+Observed benchmark pattern
+- Completed on both old and new: 10 circuits
+- New timed out while old completed: bwt_n21, vqe_uccsd_n28
+- Too wide for 127-qubit target: bv_n140, ghz_state_n255, ising_n420, qft_n320
+
+On the 10 completed rows in qasmtrans_old_vs_new_nwqbench.csv:
+- old was faster on all 10
+- new had more 2q gates on 9 of 10
+- new had greater depth on 8 of 10
+- new had fewer 1q gates on 7 of 10
+
+This pattern matters:
+- If the new code were mainly worse because of IBM basis decomposition, I would expect mainly 1q inflation.
+- Instead, the dominant regression is usually 2q count and depth.
+- That points much more strongly at routing decisions than at the final IBM basis rewrite.
+
+Representative examples from the CSV
+- adder_n64
+  - old: 42.861 ms, 1q=981, 2q=2084, depth=1179
+  - new: 78.892 ms, 1q=16273, 2q=2714, depth=3840
+- hhl_n10
+  - old: 900.782 ms, 1q=202990, 2q=104138, depth=255146
+  - new: 2482.280 ms, 1q=202932, 2q=262193, depth=353150
+- square_root_n18
+  - old: 19.596 ms, 1q=2819, 2q=2818, depth=3028
+  - new: 45.233 ms, 1q=2143, 2q=8095, depth=5059
+
+What changed in the pipeline
+
+Old pipeline
+Source: /home/hoyt924.linux/qasmtransoriginal/qasmtrans/include/circuit_passes/transpiler.hpp
+- Step 1: Decompose_three_to_two
+- Step 2: Routing
+- Step 3: Decompose
+
+Relevant lines:
+- old transpiler entry: lines 27-70
+- old routing call: lines 50-57
+- old decompose call: lines 60-69
+
+New pipeline
+Source: /home/hoyt924.linux/qasmtrans/include/circuit_passes/transpiler.hpp
+- Step 1: Decompose_three_to_two
+- annotate logical gates
+- Step 2: Routing or fast_quality_routing
+- Step 3: optional Mapomatic calibration-aware optimization
+- Step 4: Decompose
+- optional post-decompose optimization loop
+- enforce_cx_direction
+- optional final 1q optimization
+
+Relevant lines:
+- new transpiler entry: lines 185-360
+- routing call: lines 218-232
+- optional Mapomatic: lines 266-283
+- decompose + optional optimization loop: lines 284-360
+
+Important note for this benchmark:
+- Mapomatic was disabled with --disable_mapomatic
+- optimize flags were not enabled
+- So the benchmark path is effectively:
+  Decompose_three_to_two -> Routing -> Decompose -> enforce_cx_direction
+- The extra post-decompose optimization passes were not the source of the measured regression here.
+
+Why the decomposition code is probably not the main regression source
+
+IBM basis in the current backend JSON is:
+- ['id', 'rz', 'sx', 'x', 'cx', 'reset']
+
+Relevant file:
+- /home/hoyt924.linux/qasmtrans/data/devices/ibmq_toronto.json
+- /home/hoyt924.linux/qasmtrans/data/devices/ibm_brisbane.json
+
+In the new decompose code:
+- H is rewritten to a 3-gate RZ/SX/RZ form when rz and sx are in basis
+  - new decompose: /home/hoyt924.linux/qasmtrans/include/circuit_passes/decompose.hpp
+  - H handling: around lines 767-783 in the current file view
+- RX/RY also use rz/sx-aware decompositions
+
+In the old decompose code:
+- H uses a larger 5-gate X/SX/RZ/SX/X pattern
+  - old decompose: /home/hoyt924.linux/qasmtransoriginal/qasmtrans/include/circuit_passes/decompose.hpp
+  - old H handling starts in the plain Decompose chain around lines 480-520
+
+Interpretation:
+- The new IBM decomposition should if anything help or at least reduce some 1q cost.
+- That matches the benchmark trend where the new code often has fewer 1q gates.
+- It does not explain why the new code usually has more 2q gates and larger depth.
+
+So the primary regression is much more likely in routing than in decomposition.
+
+What changed in routing
+
+Old router
+Source: /home/hoyt924.linux/qasmtransoriginal/qasmtrans/include/circuit_passes/routing_mapping.hpp
+
+Old move scoring:
+- heuristic = average current-layer distance + 0.5 * average future-layer distance
+- see lines 162-190
+
+Old pick_one_movement:
+- enumerate neighbor swaps touching current-layer qubits
+- score each candidate with the simple heuristic
+- choose the minimum
+- see lines 210-244
+
+Old one_round_optimization:
+- simple execution loop
+- when no gate is executable, pick_one_movement and emit one SWAP
+- see lines 297-463
+
+Old Routing:
+- 3 SABRE-style passes
+- no critical-path bookkeeping
+- no tabu memory
+- no decay
+- no force-route fallback
+- see lines 466-544
+
+New router
+Source: /home/hoyt924.linux/qasmtrans/include/circuit_passes/routing_mapping.hpp
+
+New heuristic:
+- still based on current/future distances
+- but now adds direction penalties and bounded lookahead
+- see lines 268-359
+
+New pick_one_movement:
+- adds weighted scoring for critical gates
+- adds executable-gate progress bonus
+- adds optional decay weighting
+- adds tabu penalty using recent swaps
+- see lines 377-599
+
+New one_round_optimization:
+- tracks per-physical-qubit ready times
+- records per-gate finish times and predecessors
+- computes a critical path candidate set
+- uses no-progress counters
+- uses force_route_pair fallback after repeated stalls
+- records routing critical path latency
+- see lines 771-1139
+
+New Routing:
+- can run multiple randomized trials
+- stores swap_count and critical_path_latency
+- but picks the best trial by:
+  1. smallest swap_count
+  2. then smallest gate count
+- critical_path_latency is computed but not used to choose the winning result
+- see lines 1142-1180 and continuing below that block
+
+This is the most suspicious design mismatch
+- The new router explicitly computes critical-path information and latency.
+- But Routing does not select the best trial by depth or critical_path_latency.
+- It selects by swap_count and then total gate count.
+- That can easily produce exactly the benchmark signature we observed:
+  - routing looks "good" by swap count
+  - final output still gets worse in depth and often 2q count
+
+Why the new code is slower even before output quality
+
+The new router does more work per candidate and per routed gate:
+- weighted heuristic instead of the old scalar distance average
+- executable-gate recount for every candidate swap
+- critical-gate set construction
+- timing simulation in record_gate
+- predecessor tracking for a critical path
+- recent-swap tabu bookkeeping
+- no-progress handling + force-route fallback
+
+Even with routing_trials=1, that is a meaningful overhead increase relative to the old router.
+
+This matches the benchmark:
+- old was faster on all completed direct old-vs-new comparisons
+- the slowdown range on completed rows was roughly 1.75x to 2.76x
+
+Why the old code cannot simply be called "better"
+
+The old code has an output-emission bug on larger cases.
+
+Evidence
+- old dumpQASM:
+  - /home/hoyt924.linux/qasmtransoriginal/qasmtrans/include/dump_qasm.hpp
+  - qreg size is written from circuit->num_qubits(): lines 30 and 80
+  - measurement indices are written directly from circuit->initial_mapping[creg_index]: lines 33 and 105-112
+  - there is no validation that the mapped physical qubit is within [0, qreg_size)
+
+Observed failure
+- old adder_n64 output:
+  - /home/hoyt924.linux/qasmtrans/tmp/qasmtrans_compare_rt764w5e/adder_n64_old.qasm
+  - declares qreg q[65]
+  - contains lines like:
+    - measure q[-1] -> meas[64];
+    - measure q[173] -> meas[127];
+- Qiskit parse fails with:
+  - adder_n64_old.qasm:3180,10: needed an integer index, but instead saw -
+
+Observed larger-case old-output issues
+- adder_n64_old.qasm contains negative measurement qubits
+- bwt_n21_old.qasm contains negative measurement qubits and absurdly large indices like q[202129245816384]
+
+So for at least some larger circuits:
+- old timing may be low
+- old reported depth may be low
+- but the emitted QASM is malformed
+
+That means the old code is not a clean baseline winner on those rows.
+
+What the new dump path improved
+- new dumpQASM:
+  - /home/hoyt924.linux/qasmtrans/include/dump_qasm.hpp
+  - adds output path normalization and directory creation
+  - checks that measurement mapping size covers the creg width: lines 125-133
+  - only emits a measurement when mapped >= 0: lines 134-138
+
+This is still not a perfect bound check because it does not explicitly assert mapped < n_qubits.
+However, the new outputs used in this benchmark parsed cleanly on the cases I spot-checked, unlike the malformed old large-case outputs.
+
+What most likely went wrong in the new code
+
+Most likely root cause #1: router objective drift
+- The router became much more complicated, but the final selection objective stayed dominated by swap count.
+- That is a weak proxy for the metric you actually care about: final 2q count and final depth after decomposition.
+- The code now computes critical_path_latency but then ignores it when selecting the best routed result.
+
+Most likely root cause #2: force-route / tabu / progress heuristics are changing routes in the wrong direction
+- The new router includes several policy layers that the old router did not have:
+  - critical-gate weighting
+  - progress bonus
+  - tabu penalty
+  - no-progress fallback force routing
+- Any one of these can perturb the search enough to reduce stall behavior while still degrading the eventual circuit structure.
+- The benchmark outcome is consistent with that:
+  - the new code often reduces 1q gates
+  - but it usually increases 2q gates and depth
+  - that is what a routing regression looks like, not what a decomposition regression looks like
+
+Most likely root cause #3: old-vs-new comparisons on large rows were partially distorted by the old emitter bug
+- Some rows where old looks dramatically better may be invalid comparisons because the old output is malformed.
+- The adder_n64 row is the clearest example.
+
+Recommended next debugging steps
+
+1. Fix comparison validity first
+- Before trusting any old-vs-new quality number, validate the emitted QASM with a strict parser or an in-range measurement check.
+- Add an assertion in the new benchmark harness that every measurement target is within [0, declared_qreg_size).
+
+2. Re-rank new routing trials by depth-aware metrics
+- In new Routing, use critical_path_latency or at least routed critical-path length as the primary comparison metric.
+- swap_count can stay as a secondary tie-breaker, not the main objective.
+
+3. Isolate the routing regression with feature flags
+- Re-run the new router with:
+  - no tabu
+  - no progress bonus
+  - no force_route fallback
+  - no critical-gate weighting
+- Then add them back one at a time.
+- This should reveal which heuristic changed the route quality the most.
+
+4. Add routing-level reporting before decomposition
+- For both old and new, dump:
+  - swap count
+  - routed 2q count before basis decomposition
+  - routed critical path length
+- Right now the benchmark mostly sees the final basis-decomposed circuit, which makes root-cause isolation slower.
+
+5. Fix old dumpQASM if you want a fair legacy baseline
+- The old emitter bug is in dump_qasm.hpp, not the router itself.
+- Without fixing that, large old-vs-new quality comparisons are contaminated by malformed old output.
+
+Bottom line
+- If the question is "why does the new code look slower and deeper on many parseable benchmark rows?", the strongest answer is:
+  the routing algorithm became more complex, more expensive, and appears to optimize the wrong proxy at final trial selection time.
+- If the question is "is the old code definitively better?", the answer is:
+  not safely, because the old code also emits malformed QASM on at least some larger circuits.

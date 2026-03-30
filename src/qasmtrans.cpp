@@ -118,7 +118,6 @@ namespace
         std::cout << "--optimize-2q-cancel     Enable adjacent two-qubit cancellation pass" << std::endl;
         std::cout << "--optimize-commute-2q    Enable commutation pass to expose two-qubit cancellations" << std::endl;
         std::cout << "--optimize-2q-synth      Enable KAK-style two-qubit block synthesis" << std::endl;
-        std::cout << "--fast-routing-mapping  Use fast routing_mapping" << std::endl;
         std::cout << "-h                print the help function" << std::endl;
 }
 } // namespace
@@ -152,7 +151,6 @@ struct CliConfig
     bool routing_decay = false;
     double routing_decay_increment = 0.001;
     IdxType routing_decay_reset = 5;
-    IdxType routing_trials = 1;
     std::size_t fast_quality_max_embeddings = 50;
     long long seed = -1;
     std::string program_name = "qasmtrans";
@@ -310,11 +308,6 @@ bool parse_cli(int argc, char **argv, CliConfig &config, int &exit_code)
     {
         config.enable_2q_synth = true;
     }
-    if (cmdOptionExists(argv, argv + argc, "--fast-routing-mapping"))
-    {
-        config.routing_mode = RoutingMode::FastQuality;
-    }
-
     // Manual scan to pick up repeatable flags like multiple -i inputs.
     int argi = 1;
     while (argi < argc)
@@ -685,7 +678,6 @@ CombinedArtifacts transpile_and_merge(const std::vector<std::shared_ptr<Circuit>
                    config.routing_decay,
                    config.routing_decay_increment,
                    config.routing_decay_reset,
-                   config.routing_trials,
                    config.enable_sabre_layout,
                    config.routing_mode,
                    config.fast_quality_max_embeddings,

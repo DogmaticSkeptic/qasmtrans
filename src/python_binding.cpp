@@ -53,14 +53,14 @@ struct TranspileOptions
     bool optimize_2q_synth = false;
     bool sabre_layout = false;
     bool fast_quality_routing = false;
-    std::string routing_mode;    // "sabre" or "fast" (empty uses fast_quality_routing)
+    std::string routing_mode;    // "sabre" only; legacy "fast" falls back to sabre
     bool routing_decay = false;
     double routing_decay_increment = 0.001;
     long long routing_decay_reset = 5;
-    long long routing_trials = 1;
     std::size_t mapomatic_limit = 1000;
     std::size_t fast_quality_max_embeddings = 50;
     long long seed = -1; // Deterministic routing seed; <0 uses random device
+    std::vector<IdxType> initial_layout;
     int verbose = 0;
 };
 
@@ -348,6 +348,27 @@ namespace
             auto circuit = std::make_shared<Circuit>(n_qubits);
             parser.loadin_circuit(circuit);
             std::map<std::string, creg> cregs = parser.get_list_cregs();
+            if (!options.initial_layout.empty())
+            {
+                if (options.initial_layout.size() != static_cast<std::size_t>(n_qubits))
+                {
+                    throw std::invalid_argument("initial_layout must have exactly one entry per logical qubit");
+                }
+                std::vector<IdxType> seen(n_qubits, 0);
+                for (IdxType physical : options.initial_layout)
+                {
+                    if (physical < 0 || physical >= n_qubits)
+                    {
+                        throw std::invalid_argument("initial_layout contains an out-of-range physical qubit index");
+                    }
+                    if (seen[physical] != 0)
+                    {
+                        throw std::invalid_argument("initial_layout must be a permutation without duplicates");
+                    }
+                    seen[physical] = 1;
+                }
+                circuit->set_mapping(options.initial_layout);
+            }
 
             auto chip = constructChip(n_qubits, options.backend_config, options.limited_qubits, options.verbose);
             if (!chip)
@@ -368,22 +389,14 @@ namespace
                 std::transform(mode_value.begin(), mode_value.end(), mode_value.begin(),
                                [](unsigned char ch)
                                { return static_cast<char>(std::tolower(ch)); });
-                if (mode_value == "sabre")
+                if (mode_value == "sabre" || mode_value == "fast")
                 {
                     routing_mode = RoutingMode::Sabre;
                 }
-                else if (mode_value == "fast")
-                {
-                    routing_mode = RoutingMode::FastQuality;
-                }
                 else
                 {
-                    throw std::invalid_argument("Unknown routing_mode '" + options.routing_mode + "'. Use 'sabre' or 'fast'.");
+                    throw std::invalid_argument("Unknown routing_mode '" + options.routing_mode + "'. Use 'sabre'.");
                 }
-            }
-            else if (options.fast_quality_routing)
-            {
-                routing_mode = RoutingMode::FastQuality;
             }
             transpiler(circuit,
                        chip,
@@ -401,7 +414,6 @@ namespace
                        options.routing_decay,
                        options.routing_decay_increment,
                        static_cast<IdxType>(options.routing_decay_reset),
-                       static_cast<IdxType>(options.routing_trials),
                        options.sabre_layout,
                        routing_mode,
                        options.fast_quality_max_embeddings,
@@ -535,10 +547,10 @@ PYBIND11_MODULE(qasmtrans_core, m)
         .def_readwrite("routing_decay", &TranspileOptions::routing_decay)
         .def_readwrite("routing_decay_increment", &TranspileOptions::routing_decay_increment)
         .def_readwrite("routing_decay_reset", &TranspileOptions::routing_decay_reset)
-        .def_readwrite("routing_trials", &TranspileOptions::routing_trials)
         .def_readwrite("mapomatic_limit", &TranspileOptions::mapomatic_limit)
         .def_readwrite("fast_quality_max_embeddings", &TranspileOptions::fast_quality_max_embeddings)
         .def_readwrite("seed", &TranspileOptions::seed)
+        .def_readwrite("initial_layout", &TranspileOptions::initial_layout)
         .def_readwrite("verbose", &TranspileOptions::verbose);
 
     py::class_<TranspileResult>(m, "TranspileResult", "Outputs from a transpilation run.")

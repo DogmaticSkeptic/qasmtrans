@@ -1,0 +1,10 @@
+name,circuit_file,logical_qubits,qiskit_o1_time_ms,qiskit_o2_time_ms,qiskit_o3_time_ms,qmap_time_ms,qasmtrans_time_ms,ratio_o1_over_qt,qiskit_o1_single_qubit,qiskit_o2_single_qubit,qiskit_o3_single_qubit,qasmtrans_single_qubit,qiskit_o1_two_qubit,qiskit_o2_two_qubit,qiskit_o3_two_qubit,qasmtrans_two_qubit,qiskit_o1_depth,qiskit_o2_depth,qiskit_o3_depth,qasmtrans_depth,benchmark_status
+adder_n10,/home/hoyt924.linux/qasmtrans/data/test_benchmark/adder_n10.qasm,10,49.356,184.207,217.425,,6.052139,8.16,101,146,143,109,128,106,106,353,194,196,199,262,completed
+adder_n4,/home/hoyt924.linux/qasmtrans/data/test_benchmark/adder_n4.qasm,4,19.969,40.622,44.828,,2.667457,7.49,17,16,16,17,13,13,13,19,20,19,19,30,completed
+adder_n64,/home/hoyt924.linux/qasmtrans/data/test_benchmark/adder_n64.qasm,64,1154.891,3143.848,4372.687,,68.213626,16.93,5960,3853,3645,13861,1229,1049,962,2324,1994,1407,1411,3161,completed
+gcm_h6,/home/hoyt924.linux/qasmtrans/data/test_benchmark/gcm_h6.qasm,13,255.712,2577.493,2844.284,,34.397501,7.43,2386,2297,2267,2386,1182,791,796,3333,2929,2026,2032,4252,completed
+qaoa_n6,/home/hoyt924.linux/qasmtrans/data/test_benchmark/qaoa_n6.qasm,6,65.186,130.339,143.930,,11.541477,5.65,324,202,216,816,81,60,64,138,214,117,135,506,completed
+qec_sm_n5,/home/hoyt924.linux/qasmtrans/data/test_benchmark/qec_sm_n5.qasm,5,25.318,44.106,45.327,,2.613151,9.69,4,4,4,1,4,4,4,7,10,10,10,8,completed
+sat_n11,/home/hoyt924.linux/qasmtrans/data/test_benchmark/sat_n11.qasm,11,181.515,1004.692,1151.977,,13.751371,13.20,479,785,840,625,594,481,481,1665,756,735,834,1320,completed
+square_root_n18,/home/hoyt924.linux/qasmtrans/data/test_benchmark/square_root_n18.qasm,18,604.135,4085.739,4683.990,,43.557252,13.87,1881,3094,3094,2143,2358,1914,2032,6895,2740,2859,2962,4372,completed
+vqe_uccsd_n8,/home/hoyt924.linux/qasmtrans/data/test_benchmark/vqe_uccsd_n8.qasm,8,1144.466,5801.969,9962.837,,142.478225,8.03,4392,7470,7415,14728,5792,5066,5073,21493,7947,7982,7989,19754,completed
