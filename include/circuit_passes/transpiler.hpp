@@ -8,7 +8,6 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
-#include <optional>
 #include <sstream>
 #include <string>
 #include <unordered_set>
@@ -25,8 +24,6 @@
 #include "routing_mapping.hpp"
 #include "decompose.hpp"
 #include "optimize_1q.hpp"
-#include "optimize_2q.hpp"
-#include "optimize_2q_synth.hpp"
 #include "mapomatic.hpp"
 #include "remapping.hpp"
 
@@ -96,29 +93,51 @@ inline void materialize_logical_labels(std::vector<Gate> &gates)
     }
 }
 
-inline void enforce_cx_direction(std::shared_ptr<Circuit> circuit,
+inline bool enforce_cx_direction(std::shared_ptr<Circuit> circuit,
                                  const std::shared_ptr<Chip> &chip,
                                  const std::unordered_set<std::string> &basis_gates)
 {
     if (!circuit || !chip || chip->directed_edge_list.empty())
     {
-        return;
+        return false;
     }
     if (basis_gates.empty())
     {
-        return;
+        return false;
     }
     const bool has_h = basis_gates.find("h") != basis_gates.end();
     const bool has_rz = basis_gates.find("rz") != basis_gates.end();
     const bool has_sx = basis_gates.find("sx") != basis_gates.end();
     if (!has_h && !(has_rz && has_sx))
     {
-        return;
+        return false;
     }
-    std::vector<Gate> gates = circuit->get_gates();
+    const std::vector<Gate> &gates = circuit->gate_list();
     if (gates.empty())
     {
-        return;
+        return false;
+    }
+
+    auto needs_flip = [&](const Gate &gate)
+    {
+        if (gate.op_name != OP::CX || gate.has_custom_name())
+        {
+            return false;
+        }
+        const IdxType ctrl = gate.ctrl;
+        const IdxType tgt = gate.qubit;
+        bool allowed = false;
+        if (ctrl >= 0 && ctrl < static_cast<IdxType>(chip->directed_edge_list.size()))
+        {
+            const auto &targets = chip->directed_edge_list[static_cast<std::size_t>(ctrl)];
+            allowed = targets.find(tgt) != targets.end();
+        }
+        return !allowed && ctrl >= 0 && tgt >= 0;
+    };
+
+    if (!std::any_of(gates.begin(), gates.end(), needs_flip))
+    {
+        return false;
     }
 
     auto emit_h = [&](std::vector<Gate> &out, IdxType qubit)
@@ -137,60 +156,45 @@ inline void enforce_cx_direction(std::shared_ptr<Circuit> circuit,
     out.reserve(gates.size());
     for (const auto &gate : gates)
     {
-        if (gate.op_name == OP::CX && !gate.has_custom_name())
+        if (needs_flip(gate))
         {
             const IdxType ctrl = gate.ctrl;
             const IdxType tgt = gate.qubit;
-            bool allowed = false;
-            if (ctrl >= 0 && ctrl < static_cast<IdxType>(chip->directed_edge_list.size()))
-            {
-                const auto &targets = chip->directed_edge_list[static_cast<std::size_t>(ctrl)];
-                allowed = targets.find(tgt) != targets.end();
-            }
-            if (!allowed && ctrl >= 0 && tgt >= 0)
-            {
-                emit_h(out, ctrl);
-                emit_h(out, tgt);
-                Gate flipped = gate;
-                flipped.ctrl = tgt;
-                flipped.qubit = ctrl;
-                out.push_back(flipped);
-                emit_h(out, ctrl);
-                emit_h(out, tgt);
-                continue;
-            }
+            emit_h(out, ctrl);
+            emit_h(out, tgt);
+            Gate flipped = gate;
+            flipped.ctrl = tgt;
+            flipped.qubit = ctrl;
+            out.push_back(flipped);
+            emit_h(out, ctrl);
+            emit_h(out, tgt);
+            continue;
         }
         out.push_back(gate);
     }
-    circuit->set_gates(out);
+    circuit->set_gates(std::move(out));
+    return true;
 }
 
-enum class RoutingMode
+enum class TranspilerProfile
 {
-    Sabre
+    Baseline,
+    Enhanced
 };
 
-void transpiler(shared_ptr<Circuit> circuit,
-                shared_ptr<Chip> chip,
-                map<string, creg> list_cregs,
-                IdxType debug_level,
-                IdxType mode,
-                bool use_full_fidelity,
-                CriticalPathHeuristicMode cp_mode,
-                bool disable_mapomatic,
-                std::size_t mapomatic_max_embeddings,
-                bool enable_1q_opt,
-                bool enable_2q_cancel,
-                bool enable_commute_2q,
-                bool enable_2q_synth,
-                bool routing_decay,
-                double routing_decay_increment,
-                IdxType routing_decay_reset,
-                bool enable_sabre_layout,
-                RoutingMode routing_mode,
-                std::size_t fast_quality_max_embeddings,
-                const std::unordered_set<std::string> &basis_gates,
-                std::optional<uint64_t> routing_seed = std::nullopt)
+inline void transpiler(shared_ptr<Circuit> circuit,
+                       shared_ptr<Chip> chip,
+                       map<string, creg> list_cregs,
+                       IdxType debug_level,
+                       IdxType mode,
+                       bool use_full_fidelity,
+                       CriticalPathHeuristicMode cp_mode,
+                       bool disable_mapomatic,
+                       std::size_t mapomatic_max_embeddings,
+                       bool enable_1q_opt,
+                       RoutingMode routing_mode,
+                       TranspilerProfile profile,
+                       const std::unordered_set<std::string> &basis_gates)
 {
     circuit->set_creg(list_cregs);
     IdxType n_qubits = IdxType(circuit->num_qubits());
@@ -201,7 +205,6 @@ void transpiler(shared_ptr<Circuit> circuit,
         //std::cerr<<"Chip qubit number is smaller than the circuit."<<endl;
         //std::cerr<<"No transpilation has been performed."<<endl;
         throw std::logic_error{"Chip qubit number is smaller than the circuit. No transpilation has been performed."};
-        std::exit(1);
     }
 
     //======================================== STEP-1: Initial Gate Decomposition =====================================
@@ -210,12 +213,14 @@ void transpiler(shared_ptr<Circuit> circuit,
         oss << std::fixed << std::setprecision(6) << ms;
         return oss.str();
     };
+    const bool enhanced_profile = profile == TranspilerProfile::Enhanced;
 
     cpu_timer initial_decompose_timer;
     initial_decompose_timer.start_timer();
     Decompose_three_to_two(circuit);
     initial_decompose_timer.stop_timer();
     double initial_decompose_time = initial_decompose_timer.measure();
+    if (enhanced_profile)
     {
         std::vector<Gate> logical_stage_gates = circuit->get_gates();
         assign_logical_gate_ids(logical_stage_gates);
@@ -227,16 +232,12 @@ void transpiler(shared_ptr<Circuit> circuit,
     //======================================== STEP-2: Routing and Mapping ============================================
     cpu_timer routing_timer;
     routing_timer.start_timer();
-    (void)enable_sabre_layout;
-    (void)routing_mode;
-    (void)fast_quality_max_embeddings;
-    Routing(circuit, chip, debug_level, routing_decay, routing_decay_increment,
-            routing_decay_reset, routing_seed);
+    Routing(circuit, chip, debug_level, routing_mode);
     {
         IdxType swap_count = 0;
         IdxType cx_count = 0;
         IdxType twoq_count = 0;
-        for (const auto &gate : circuit->get_gates())
+        for (const auto &gate : circuit->gate_list())
         {
             if (gate.op_name == OP::SWAP)
             {
@@ -265,6 +266,26 @@ void transpiler(shared_ptr<Circuit> circuit,
         cout << "STEP-2. Routing and mapping time: " << format_ms(routing_time) << "ms" << endl;
     if (debug_level > 1)
         cout << circuit->to_string() << endl;
+
+    if (!enhanced_profile)
+    {
+        cpu_timer decompose_timer;
+        decompose_timer.start_timer();
+        Decompose(circuit, mode, enhanced_profile);
+        if (enable_1q_opt)
+        {
+            QASMTrans::optimize::optimize_1q_gates_decomposition(circuit, chip, &basis_gates, debug_level, "baseline-single-pass");
+        }
+        decompose_timer.stop_timer();
+        double decompose_time = decompose_timer.measure();
+        if (debug_level > 0)
+        {
+            cout << "STEP-3. Basis gate decomposition time: " << format_ms(decompose_time) << "ms" << endl;
+            cout << " total QASMTrans time: " << format_ms(initial_decompose_time + routing_time + decompose_time) << "ms" << endl;
+        }
+        return;
+    }
+
     //======================================== STEP-3: Calibration-Aware Optimization =======================================
     double calib_time = 0.0;
     if (!disable_mapomatic)
@@ -286,98 +307,77 @@ void transpiler(shared_ptr<Circuit> circuit,
     //======================================== STEP-4: Basis Gate Decomposition =======================================
     cpu_timer decompose_timer;
     decompose_timer.start_timer();
+    double materialize_time = 0.0;
+    double basis_decompose_time = 0.0;
+    double opt_loop_time = 0.0;
+    double enforce_direction_time = 0.0;
+    cpu_timer step4_section_timer;
     {
+        step4_section_timer.start_timer();
         std::vector<Gate> routed_gates = circuit->get_gates();
         materialize_logical_labels(routed_gates);
         circuit->set_gates(routed_gates);
+        step4_section_timer.stop_timer();
+        materialize_time = step4_section_timer.measure();
     }
-    Decompose(circuit, mode);
-    bool can_2q_synth = enable_2q_synth;
-#ifndef QASMTRANS_USE_EIGEN
-    if (can_2q_synth)
-    {
-        if (debug_level > 0)
-        {
-            cout << "STEP-4. 2Q synthesis requested, but Eigen is not enabled at build time." << endl;
-        }
-        can_2q_synth = false;
-    }
-#endif
-
-    const bool run_opt_loop = can_2q_synth || enable_commute_2q || enable_2q_cancel || enable_1q_opt;
-    if (run_opt_loop)
-    {
-        const int kMaxOptLoops = 50;
-        const int kBacktrackDepth = 5;
-        QASMTrans::cli::GateSummary summary =
-            QASMTrans::cli::compute_gate_summary(circuit->get_gates(), circuit->num_qubits());
-        std::size_t best_depth = summary.depth;
-        std::size_t best_size =
-            static_cast<std::size_t>(summary.single_qubit + summary.two_qubit);
-        std::vector<Gate> best_gates = circuit->get_gates();
-        int since_best = 0;
-
-        for (int iter = 0; iter < kMaxOptLoops; ++iter)
-        {
-            if (can_2q_synth)
-            {
-                QASMTrans::optimize::synthesize_2q_blocks(circuit, chip, &basis_gates);
-            }
-            if (enable_1q_opt)
-            {
-                QASMTrans::optimize::optimize_1q_gates_decomposition(circuit, chip, &basis_gates);
-            }
-            if (enable_commute_2q)
-            {
-                QASMTrans::optimize::commute_rz_through_2q(circuit);
-                QASMTrans::optimize::commute_1q_through_2q(circuit);
-                QASMTrans::optimize::commutative_cancel_2q(circuit);
-            }
-            if (enable_2q_cancel)
-            {
-                QASMTrans::optimize::cancel_adjacent_2q(circuit);
-            }
-
-            QASMTrans::cli::GateSummary next_summary =
-                QASMTrans::cli::compute_gate_summary(circuit->get_gates(), circuit->num_qubits());
-            std::size_t next_size =
-                static_cast<std::size_t>(next_summary.single_qubit + next_summary.two_qubit);
-
-            if (next_summary.depth < best_depth ||
-                (next_summary.depth == best_depth && next_size < best_size))
-            {
-                best_depth = next_summary.depth;
-                best_size = next_size;
-                best_gates = circuit->get_gates();
-                since_best = 0;
-            }
-            else if (next_summary.depth == best_depth && next_size == best_size)
-            {
-                break;
-            }
-            else
-            {
-                since_best += 1;
-                if (since_best >= kBacktrackDepth)
-                {
-                    circuit->set_gates(best_gates);
-                    break;
-                }
-            }
-        }
-    }
-
-    enforce_cx_direction(circuit, chip, basis_gates);
+    step4_section_timer.start_timer();
+    Decompose(circuit, mode, enhanced_profile);
+    step4_section_timer.stop_timer();
+    basis_decompose_time = step4_section_timer.measure();
     if (enable_1q_opt)
     {
-        QASMTrans::optimize::optimize_1q_gates_decomposition(circuit, chip, &basis_gates);
+        step4_section_timer.start_timer();
+        QASMTrans::optimize::optimize_1q_gates_decomposition(circuit, chip, &basis_gates, debug_level, "single-pass");
+        step4_section_timer.stop_timer();
+        opt_loop_time = step4_section_timer.measure();
+    }
+
+    step4_section_timer.start_timer();
+    const bool direction_changed = enforce_cx_direction(circuit, chip, basis_gates);
+    step4_section_timer.stop_timer();
+    enforce_direction_time = step4_section_timer.measure();
+    if (enable_1q_opt && direction_changed)
+    {
+        step4_section_timer.start_timer();
+        QASMTrans::optimize::optimize_1q_gates_decomposition(circuit, chip, &basis_gates, debug_level, "post-direction");
+        step4_section_timer.stop_timer();
+        opt_loop_time += step4_section_timer.measure();
     }
     decompose_timer.stop_timer();
     double decompose_time = decompose_timer.measure();
     if (debug_level > 0)
     {
+        if (debug_level > 1)
+        {
+            cout << "  [STEP-4 detail] materialize=" << format_ms(materialize_time) << "ms"
+                 << " decompose=" << format_ms(basis_decompose_time) << "ms"
+                 << " opt_loop=" << format_ms(opt_loop_time) << "ms"
+                 << " enforce_direction=" << format_ms(enforce_direction_time) << "ms" << endl;
+        }
         cout << "STEP-4. Basis gate decomposition time: " << format_ms(decompose_time) << "ms" << endl;
         cout << " total QASMTrans time: " << format_ms(initial_decompose_time + routing_time + decompose_time) << "ms" << endl;
     }
 
+}
+
+inline void transpiler(shared_ptr<Circuit> circuit,
+                       shared_ptr<Chip> chip,
+                       map<string, creg> list_cregs,
+                       IdxType debug_level,
+                       IdxType mode)
+{
+    static const std::unordered_set<std::string> empty_basis_gates;
+    transpiler(circuit,
+               chip,
+               list_cregs,
+               debug_level,
+               mode,
+               false,
+               CriticalPathHeuristicMode::LogProduct,
+               true,
+               1000,
+               false,
+               RoutingMode::Sabre,
+               TranspilerProfile::Baseline,
+               empty_basis_gates);
 }

@@ -911,8 +911,6 @@ void calibration_aware_optimization(shared_ptr<Circuit> circuit,
             }
             circuit->set_mapping(logical_to_physical);
         }
-
-        circuit->populate_connectivity();
     }
     else if (!critical_path_from_circuit &&
              (!critical_path_gates.empty() || critical_path_latency > 0.0))

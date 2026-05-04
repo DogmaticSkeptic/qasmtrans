@@ -21,10 +21,10 @@ DEFAULT_DEVICE_NAME = "ibm_brisbane"
 DEFAULT_DEVICE_JSON = REPO_ROOT / "data/devices/ibm_brisbane.json"
 DEFAULT_DEVICE_QUBITS = 127
 DEFAULT_COUNTS = [1, 2, 4, 6]
-DEFAULT_INPUT_DIR = REPO_ROOT / "data/test_benchmark"
-DEFAULT_TARGETS = ["qaoa_n6.qasm", "qpe9.qasm", "bb84_n8.qasm"]
-DEFAULT_OUTPUT_CSV = SCRIPT_DIR / "adaptive_timing_ibm_brisbane.csv"
-DEFAULT_OUTPUT_ROOT = SCRIPT_DIR / "output_adaptive"
+DEFAULT_INPUT_DIR = REPO_ROOT / "data/benchmarking/space_sharing/inputs"
+DEFAULT_TARGETS = ["bb84_n8.qasm", "qaoa_n6.qasm", "qpe9.qasm"]
+DEFAULT_OUTPUT_CSV = REPO_ROOT / "data/benchmarking/space_sharing/results/adaptive_timing_ibm_brisbane.csv"
+DEFAULT_OUTPUT_ROOT = REPO_ROOT / "data/benchmarking/space_sharing/outputs"
 DEFAULT_NWQSIM_EXE = REPO_ROOT / ".." / "NWQ-Sim" / "build" / "qasm" / "nwq_qasm"
 DEFAULT_QASMTRANS_BIN = REPO_ROOT / "build" / "QASMTrans"
 
@@ -37,7 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--counts", default="1,2,4,6", help="Comma-separated counts of repeated circuits per run.")
     parser.add_argument("--input_dir", default=str(DEFAULT_INPUT_DIR), help="Directory containing target *.qasm circuits.")
     parser.add_argument("--targets", default=",".join(DEFAULT_TARGETS), help="Comma-separated list of circuit filenames to include.")
-    parser.add_argument("--output_csv", default=str(DEFAULT_OUTPUT_CSV), help="Destination CSV (default: test/benchmarking/adaptive_timing_ibm_brisbane.csv).")
+    parser.add_argument("--output_csv", default=str(DEFAULT_OUTPUT_CSV), help="Destination CSV.")
     parser.add_argument("--output_root", default=str(DEFAULT_OUTPUT_ROOT), help="Where to place transpiled outputs.")
     parser.add_argument("--qasmtrans_bin", default=str(DEFAULT_QASMTRANS_BIN), help="Path to QASMTrans binary.")
     parser.add_argument("--nwqsim_exe", default=str(DEFAULT_NWQSIM_EXE), help="Path to NWQ-Sim executable.")

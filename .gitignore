@@ -31,7 +31,7 @@ scripts/tmp/
 .mplconfig/
 data/devices/rigetti_ankaa*
 test/benchmarking/*.csv
-test/benchmarking/output_adaptive/
+test/benchmarking/logs/
 
 # CMake generated directories and files
 CMakeCache.txt
@@ -41,9 +41,19 @@ Makefile
 install_manifest.txt
 data/output_demo*
 data/output_demo_pulses*
-data/output_demo_qick*
 data/output_qasm_file/
-data/mapomatic_benchmarks.csv
+
+# Benchmark-generated artifacts
+data/benchmarking/compilation/results/
+data/benchmarking/compilation/outputs/
+data/benchmarking/mapomatic/results/
+data/benchmarking/mapomatic/outputs/
+data/benchmarking/space_sharing/results/
+data/benchmarking/space_sharing/outputs/
+data/benchmarking/qubit_adapt/generated/
+data/benchmarking/qubit_adapt/transpiled*/
+data/benchmarking/qubit_adapt/results/
+data/benchmarking/qubit_adapt/plots/
 
 
 # Directories generated during build
@@ -66,6 +76,11 @@ data/output/
 *.log
 .python-version
 venv/
+.venv*/
+
+# Local scratch / runtime artifacts
+/tmp/
+/tmp_weight4_decay_compare*/
 
 # Python
 __pycache__/

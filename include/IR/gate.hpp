@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cstring>
 #include <iostream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -456,7 +457,7 @@ namespace QASMTrans
         }
 
         // for dumping the gate
-        std::string gateToString()
+        std::string gateToString() const
         {
             std::stringstream ss;
             ss << name();

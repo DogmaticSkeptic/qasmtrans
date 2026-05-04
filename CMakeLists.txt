@@ -17,57 +17,58 @@ project(QASMTrans)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-# Set the -O3 optimization flag for all configurations
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
-
-set(Python3_FIND_VIRTUALENV FIRST)
-
-find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
-
-execute_process(
-    COMMAND "${Python3_EXECUTABLE}" -m pybind11 --cmakedir
-    OUTPUT_VARIABLE _pybind11_dir
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    RESULT_VARIABLE _pybind11_status
-)
-
-if (NOT _pybind11_status EQUAL 0)
-    message(FATAL_ERROR "Failed to find pybind11 via Python. Did you run 'pip install pybind11'?")
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-list(APPEND CMAKE_PREFIX_PATH "${_pybind11_dir}")
+option(QASMTRANS_ENABLE_NATIVE "Enable -march=native for local benchmark builds." OFF)
+option(QASMTRANS_ENABLE_IPO "Enable interprocedural optimization when supported." OFF)
+option(QASMTRANS_BUILD_PYTHON "Build the pybind11 Python module." ON)
 
-find_package(pybind11 CONFIG REQUIRED)
+# Keep an optimized default build even without an explicit build type.
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3")
 
-# Eigen headers (vendored or fetched). Needed for optional 2Q synthesis.
-option(QASMTRANS_USE_EIGEN "Enable Eigen-based features." OFF)
-option(QASMTRANS_FETCH_EIGEN "Download Eigen if not vendored." OFF)
-set(QASMTRANS_EIGEN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/eigen-3.4.1"
-    CACHE PATH "Path to Eigen headers (directory containing Eigen/)")
+if(QASMTRANS_ENABLE_NATIVE)
+    add_compile_options(-march=native)
+endif()
 
-if(QASMTRANS_USE_EIGEN)
-    if(EXISTS "${QASMTRANS_EIGEN_DIR}/Eigen/Core")
-        set(EIGEN3_INCLUDE_DIR "${QASMTRANS_EIGEN_DIR}")
+if(QASMTRANS_ENABLE_IPO)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT qasmtrans_ipo_supported OUTPUT qasmtrans_ipo_error)
+    if(qasmtrans_ipo_supported)
+        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
     else()
-        if(QASMTRANS_FETCH_EIGEN)
-            include(FetchContent)
-            FetchContent_Declare(
-                eigen3
-                URL https://gitlab.com/libeigen/eigen/-/archive/3.4.1/eigen-3.4.1.tar.bz2
-            )
-            FetchContent_MakeAvailable(eigen3)
-            set(EIGEN3_INCLUDE_DIR "${eigen3_SOURCE_DIR}")
-        else()
-            message(FATAL_ERROR "Eigen not found. Set QASMTRANS_EIGEN_DIR or enable QASMTRANS_FETCH_EIGEN=ON.")
-        endif()
+        message(WARNING "IPO/LTO requested but not supported: ${qasmtrans_ipo_error}")
     endif()
+endif()
+
+if(QASMTRANS_BUILD_PYTHON)
+    set(Python3_FIND_VIRTUALENV FIRST)
+
+    find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+
+    execute_process(
+        COMMAND "${Python3_EXECUTABLE}" -m pybind11 --cmakedir
+        OUTPUT_VARIABLE _pybind11_dir
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE _pybind11_status
+    )
+
+    if (NOT _pybind11_status EQUAL 0)
+        message(FATAL_ERROR "Failed to find pybind11 via Python. Did you run 'pip install pybind11'?")
+    endif()
+
+    list(APPEND CMAKE_PREFIX_PATH "${_pybind11_dir}")
+
+    find_package(pybind11 CONFIG REQUIRED)
 endif()
 
 # Add executable
 add_executable(QASMTrans
     src/qasmtrans.cpp
+    src/cli_pipeline.cpp
     src/cli_support.cpp
-    src/qick_emitter.cpp
 )
 
 # Make the project's headers and the vendored Lemon headers visible to the target
@@ -76,33 +77,26 @@ target_include_directories(QASMTrans
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 )
-if(QASMTRANS_USE_EIGEN)
-    target_include_directories(QASMTrans PRIVATE ${EIGEN3_INCLUDE_DIR})
-    target_compile_definitions(QASMTrans PRIVATE QASMTRANS_USE_EIGEN=1)
-endif()
+set(QASMTRANS_RUNTIME_TARGETS QASMTrans)
 
-# Link pybind
-target_link_libraries(QASMTrans PRIVATE pybind11::embed Python3::Python)
-
-# Python binding skeleton (pybind11 module)
-pybind11_add_module(qasmtrans_core MODULE
-    src/python_binding.cpp
-    src/cli_support.cpp
-)
-target_include_directories(qasmtrans_core
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/third_party
-)
-if(QASMTRANS_USE_EIGEN)
-    target_include_directories(qasmtrans_core PRIVATE ${EIGEN3_INCLUDE_DIR})
-    target_compile_definitions(qasmtrans_core PRIVATE QASMTRANS_USE_EIGEN=1)
+if(QASMTRANS_BUILD_PYTHON)
+    # Python binding skeleton (pybind11 module)
+    pybind11_add_module(qasmtrans_core MODULE
+        src/python_binding.cpp
+        src/cli_support.cpp
+    )
+    target_include_directories(qasmtrans_core
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+    )
+    list(APPEND QASMTRANS_RUNTIME_TARGETS qasmtrans_core)
+    # Place the module next to the python/ helpers for easy import during development
+    set_target_properties(qasmtrans_core PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/python
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/python
+    )
 endif()
-# Place the module next to the python/ helpers for easy import during development
-set_target_properties(qasmtrans_core PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/python
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/python
-)
 
 # Apple-provided Clang (and the Homebrew LLVM toolchain that scikit-build often
 # selects when building wheels) does not always add the matching libc++/c++abi
@@ -118,7 +112,7 @@ if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     set(_cxx_lib_hints "${_cxx_runtime_hint};${_toolchain_root}/lib")
     find_library(_libcxx c++ HINTS ${_cxx_lib_hints})
     find_library(_libcxxabi c++abi HINTS ${_cxx_lib_hints})
-    foreach(target_name IN ITEMS QASMTrans qasmtrans_core)
+    foreach(target_name IN LISTS QASMTRANS_RUNTIME_TARGETS)
         if(TARGET ${target_name})
             if(_libcxx)
                 target_link_libraries(${target_name} PRIVATE ${_libcxx})
@@ -130,14 +124,14 @@ if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     endforeach()
 endif()
 
-install(TARGETS qasmtrans_core
-    LIBRARY DESTINATION qasmtrans
-    RUNTIME DESTINATION qasmtrans
-    ARCHIVE DESTINATION qasmtrans
-)
-install(FILES
-    python/qasmtrans/__init__.py
-    python/qasmtrans/plot_pulses.py
-    python/qasmtrans/qick_pulse_runner.py
-    DESTINATION qasmtrans
-)
+if(QASMTRANS_BUILD_PYTHON)
+    install(TARGETS qasmtrans_core
+        LIBRARY DESTINATION qasmtrans
+        RUNTIME DESTINATION qasmtrans
+        ARCHIVE DESTINATION qasmtrans
+    )
+    install(FILES
+        python/qasmtrans/__init__.py
+        DESTINATION qasmtrans
+    )
+endif()

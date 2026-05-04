@@ -22,6 +22,11 @@ using namespace QASMTrans;
 
 namespace QASMTrans
 {
+    enum class ChipMetadataMode
+    {
+        TopologyOnly,
+        Full
+    };
 
     class Chip
     {
@@ -83,17 +88,37 @@ namespace QASMTrans
         return distance_mat;
     }
 
-    inline shared_ptr<Chip> constructChip(IdxType qubit_num, string backendpath, bool run_with_limit, IdxType debug_level)
+    inline const json &load_backend_config_cached(const std::string &backendpath)
+    {
+        static std::unordered_map<std::string, json> cache;
+        auto it = cache.find(backendpath);
+        if (it != cache.end())
+        {
+            return it->second;
+        }
+
+        ifstream f(backendpath);
+        if (f.fail())
+        {
+            throw logic_error("Device config file not found at " + backendpath);
+        }
+
+        json backend_config = json::parse(f, nullptr, true, true);
+        return cache.emplace(backendpath, std::move(backend_config)).first->second;
+    }
+
+    inline shared_ptr<Chip> constructChip(IdxType qubit_num,
+                                          string backendpath,
+                                          bool run_with_limit,
+                                          IdxType debug_level,
+                                          ChipMetadataMode metadata_mode = ChipMetadataMode::Full)
     {
         // string path = "../data/device/" +backend_name+ ".json";
         // string path = "/Users/lian599/local/QASMTrans/data/devices/" +backend_name+ ".json";
         // string path = backend_name;
 
-        ifstream f(backendpath);
         bool limited_arc = run_with_limit;
-        if (f.fail())
-            throw logic_error("Device config file not found at " + backendpath);
-        json backend_config = json::parse(f);
+        const json &backend_config = load_backend_config_cached(backendpath);
         vector<pair<IdxType, IdxType>> pairs;
         IdxType chip_qubit_num = backend_config["num_qubits"];
         auto cx_coupling = backend_config["cx_coupling"];
@@ -187,6 +212,11 @@ namespace QASMTrans
         chip->readout_length.assign(chip->chip_qubit_num, std::nullopt);
         chip->prob_meas0_prep1.assign(chip->chip_qubit_num, std::nullopt);
         chip->prob_meas1_prep0.assign(chip->chip_qubit_num, std::nullopt);
+
+        if (metadata_mode == ChipMetadataMode::TopologyOnly)
+        {
+            return chip;
+        }
 
         if (backend_config.contains("gate_errs"))
         {

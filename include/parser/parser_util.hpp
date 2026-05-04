@@ -43,7 +43,7 @@ const IdxType UN_DEF = -1;
 
 string DEFAULT_GATES[] = {
     "U", "U3", "U2", "U1", "X", "Y", "Z", "H",
-    "S", "SDG", "T", "TDG", "SX",
+    "S", "SDG", "T", "TDG", "SX", "SXDG",
     "RX", "RY", "RZ",
     "CZ", "CX", "CY", "CH", "PRX",
     "CCX", "CRX", "CRY", "CRZ", "CU1", "CU3",

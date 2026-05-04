@@ -26,7 +26,10 @@ except ImportError:
 import qasmtrans
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_INPUT_DIR = REPO_ROOT / "data/benchmarking/mapomatic/inputs"
+DEFAULT_CIRCUITS = ("qpe9.qasm", "sat7.qasm", "shor7.qasm", "vqe8.qasm")
 
 
 def parse_mapomatic_ms(output: str) -> float:
@@ -291,7 +294,10 @@ def main() -> None:
         "-i",
         "--input",
         action="append",
-        help="QASM circuit file(s). If omitted, defaults to test/benchmarking/tmp/{vqe8,qpe9,sat7,shor7}.qasm",
+        help=(
+            "QASM circuit file(s). If omitted, defaults to "
+            f"data/benchmarking/mapomatic/inputs/{{{','.join(DEFAULT_CIRCUITS)}}}."
+        ),
     )
     parser.add_argument(
         "--modes",
@@ -305,12 +311,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--output_csv",
-        default=str(REPO_ROOT / "data" / "mapomatic_benchmarks.csv"),
+        default=str(REPO_ROOT / "data" / "benchmarking" / "mapomatic" / "results" / "mapomatic_benchmarks.csv"),
         help="Where to write the benchmark CSV.",
     )
     parser.add_argument(
         "--output_dir",
-        default=str(REPO_ROOT / "data" / "output_qasm_file"),
+        default=str(REPO_ROOT / "data" / "benchmarking" / "mapomatic" / "outputs"),
         help="Directory to store transpiled outputs.",
     )
     parser.add_argument(
@@ -338,12 +344,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--fidelity_pdf",
-        default=str(REPO_ROOT / "data" / "mapomatic_fidelity.pdf"),
+        default=str(REPO_ROOT / "data" / "benchmarking" / "mapomatic" / "results" / "mapomatic_fidelity.pdf"),
         help="Path for fidelity plot PDF.",
     )
     parser.add_argument(
         "--timing_pdf",
-        default=str(REPO_ROOT / "data" / "mapomatic_timing.pdf"),
+        default=str(REPO_ROOT / "data" / "benchmarking" / "mapomatic" / "results" / "mapomatic_timing.pdf"),
         help="Path for timing plot PDF.",
     )
     args = parser.parse_args()
@@ -353,8 +359,14 @@ def main() -> None:
     if args.input:
         circuits = [Path(p).resolve() for p in args.input]
     else:
-        default_dir = REPO_ROOT / "scripts" / "tmp"
-        circuits = [default_dir / "vqe8.qasm", default_dir / "qpe9.qasm", default_dir / "sat7.qasm", default_dir / "shor7.qasm"]
+        circuits = [(DEFAULT_INPUT_DIR / name).resolve() for name in DEFAULT_CIRCUITS]
+        missing = [path for path in circuits if not path.is_file()]
+        if missing:
+            missing_text = ", ".join(str(path) for path in missing)
+            raise FileNotFoundError(
+                "Default Mapomatic inputs are missing. "
+                f"Provide --input explicitly or restore: {missing_text}"
+            )
 
     nwqsim_extra = args.nwqsim_extra.split() if args.nwqsim_extra else []
 

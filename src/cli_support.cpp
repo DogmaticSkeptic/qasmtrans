@@ -1,14 +1,11 @@
 #include "../include/cli_support.hpp"
 
 #include <algorithm>
-#include <array>
 #include <fstream>
-#include <iomanip>
 #include <sstream>
+#include <stdexcept>
 #include <system_error>
 #include <unordered_set>
-#include <chrono>
-#include <numeric>
 
 #include "../include/IR/gate.hpp"
 
@@ -263,181 +260,143 @@ namespace QASMTrans
             return candidate.string();
         }
 
-        GateSummary compute_gate_summary(const std::vector<Gate> &gates, IdxType initial_capacity)
+        IdxType mode_from_string(const std::string &mode_name)
         {
-            GateSummary summary;
-            if (initial_capacity < 0)
+            std::string lowered = mode_name;
+            std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+                           [](unsigned char c)
+                           { return static_cast<char>(std::tolower(c)); });
+            if (lowered == "ibmq")
             {
-                initial_capacity = 0;
+                return 0;
             }
-            std::vector<std::size_t> qubit_depth(static_cast<std::size_t>(initial_capacity), 0);
-
-            for (const auto &gate : gates)
+            if (lowered == "ionq")
             {
-                switch (gate.op_name)
-                {
-                case OP::M:
-                case OP::MA:
-                case OP::RESET:
-                    continue;
-                default:
-                    break;
-                }
-
-                std::array<IdxType, 3> raw_indices = {gate.qubit, gate.ctrl, gate.extra};
-                std::vector<std::size_t> involved;
-                involved.reserve(raw_indices.size());
-
-                for (IdxType raw_index : raw_indices)
-                {
-                    if (raw_index < 0)
-                    {
-                        continue;
-                    }
-                    std::size_t index = static_cast<std::size_t>(raw_index);
-                    if (index >= qubit_depth.size())
-                    {
-                        qubit_depth.resize(index + 1, 0);
-                    }
-                    if (std::find(involved.begin(), involved.end(), index) == involved.end())
-                    {
-                        involved.push_back(index);
-                    }
-                }
-
-                if (involved.empty())
-                {
-                    continue;
-                }
-
-                if (involved.size() == 1)
-                {
-                    summary.single_qubit += 1;
-                }
-                else if (involved.size() == 2)
-                {
-                    summary.two_qubit += 1;
-                }
-
-                std::size_t gate_depth = 0;
-                for (std::size_t idx : involved)
-                {
-                    gate_depth = std::max(gate_depth, qubit_depth[idx]);
-                }
-                gate_depth += 1;
-                for (std::size_t idx : involved)
-                {
-                    qubit_depth[idx] = gate_depth;
-                }
-                summary.depth = std::max(summary.depth, gate_depth);
+                return 1;
             }
-
-            return summary;
+            if (lowered == "quantinuum")
+            {
+                return 2;
+            }
+            if (lowered == "rigetti")
+            {
+                return 3;
+            }
+            if (lowered == "quafu")
+            {
+                return 4;
+            }
+            if (lowered == "iqm")
+            {
+                return 5;
+            }
+            throw std::invalid_argument("Unknown mode '" + lowered + "'");
         }
 
         void ingest_backend_metadata(const std::string &backendpath,
                                      std::unordered_set<std::string> &device_basis_gates,
-                                     std::unordered_map<std::string, std::string> &merged_gate_aliases)
+                                     std::unordered_map<std::string, std::string> &merged_gate_aliases,
+                                     bool strict)
         {
             device_basis_gates.clear();
             merged_gate_aliases.clear();
             try
             {
-                std::ifstream backend_stream(backendpath);
-                if (backend_stream.is_open())
+                const json &backend_config = QASMTrans::load_backend_config_cached(backendpath);
+                auto to_lower = [](std::string value)
                 {
-                    json backend_config = json::parse(backend_stream, nullptr, true, true);
-                    auto to_lower = [](std::string value)
+                    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
+                    return value;
+                };
+                auto ingest_aliases = [&](const json &aliases)
+                {
+                    if (!aliases.is_object())
                     {
-                        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c)
-                                       { return static_cast<char>(std::tolower(c)); });
-                        return value;
-                    };
-                    auto ingest_aliases = [&](const json &aliases)
+                        return;
+                    }
+                    for (const auto &item : aliases.items())
                     {
-                        if (!aliases.is_object())
+                        std::string alias_name = to_lower(item.key());
+                        if (alias_name.empty())
                         {
-                            return;
+                            continue;
                         }
-                        for (const auto &item : aliases.items())
+                        device_basis_gates.insert(alias_name);
+                        const json &info = item.value();
+                        if (!info.is_object())
                         {
-                            std::string alias_name = to_lower(item.key());
-                            if (alias_name.empty())
-                            {
-                                continue;
-                            }
-                            device_basis_gates.insert(alias_name);
-                            const json &info = item.value();
-                            if (!info.is_object())
-                            {
-                                continue;
-                            }
-                            std::string logical = to_lower(info.value("logical_gate", std::string{}));
-                            if (logical.empty())
-                            {
-                                continue;
-                            }
-                            if (merged_gate_aliases.find(logical) == merged_gate_aliases.end())
-                            {
-                                merged_gate_aliases[logical] = alias_name;
-                            }
+                            continue;
                         }
-                    };
-                    auto ingest_basis = [&](const json &arr)
+                        std::string logical = to_lower(info.value("logical_gate", std::string{}));
+                        if (logical.empty())
+                        {
+                            continue;
+                        }
+                        if (merged_gate_aliases.find(logical) == merged_gate_aliases.end())
+                        {
+                            merged_gate_aliases[logical] = alias_name;
+                        }
+                    }
+                };
+                auto ingest_basis = [&](const json &arr)
+                {
+                    if (!arr.is_array())
                     {
-                        if (!arr.is_array())
-                        {
-                            return;
-                        }
-                        for (const auto &entry : arr)
-                        {
-                            if (entry.is_string())
-                            {
-                                std::string gate = to_lower(entry.get<std::string>());
-                                if (!gate.empty())
-                                {
-                                    device_basis_gates.insert(gate);
-                                }
-                            }
-                        }
-                    };
-                    auto ingest_gate_lens = [&](const json &obj)
+                        return;
+                    }
+                    for (const auto &entry : arr)
                     {
-                        if (!obj.is_object())
+                        if (entry.is_string())
                         {
-                            return;
-                        }
-                        for (auto it = obj.begin(); it != obj.end(); ++it)
-                        {
-                            const std::string key = it.key();
-                            size_t first_digit = key.find_first_of("0123456789");
-                            if (first_digit == std::string::npos)
-                            {
-                                continue;
-                            }
-                            std::string gate = to_lower(key.substr(0, first_digit));
+                            std::string gate = to_lower(entry.get<std::string>());
                             if (!gate.empty())
                             {
                                 device_basis_gates.insert(gate);
                             }
                         }
-                    };
-                    ingest_basis(backend_config.value("basis_gates", json::array()));
-                    if (backend_config.contains("metadata") && backend_config["metadata"].is_object())
-                    {
-                        ingest_basis(backend_config["metadata"].value("basis_gates", json::array()));
-                        ingest_aliases(backend_config["metadata"].value("merged_gate_aliases", json::object()));
                     }
-                    ingest_aliases(backend_config.value("merged_gate_aliases", json::object()));
-                    if (device_basis_gates.empty())
+                };
+                auto ingest_gate_lens = [&](const json &obj)
+                {
+                    if (!obj.is_object())
                     {
-                        ingest_gate_lens(backend_config.value("gate_lens", json::object()));
+                        return;
                     }
+                    for (auto it = obj.begin(); it != obj.end(); ++it)
+                    {
+                        const std::string key = it.key();
+                        size_t first_digit = key.find_first_of("0123456789");
+                        if (first_digit == std::string::npos)
+                        {
+                            continue;
+                        }
+                        std::string gate = to_lower(key.substr(0, first_digit));
+                        if (!gate.empty())
+                        {
+                            device_basis_gates.insert(gate);
+                        }
+                    }
+                };
+                ingest_basis(backend_config.value("basis_gates", json::array()));
+                if (backend_config.contains("metadata") && backend_config["metadata"].is_object())
+                {
+                    ingest_basis(backend_config["metadata"].value("basis_gates", json::array()));
+                    ingest_aliases(backend_config["metadata"].value("merged_gate_aliases", json::object()));
+                }
+                ingest_aliases(backend_config.value("merged_gate_aliases", json::object()));
+                if (device_basis_gates.empty())
+                {
+                    ingest_gate_lens(backend_config.value("gate_lens", json::object()));
                 }
             }
-            catch (const std::exception &)
+            catch (const std::exception &ex)
             {
-                // Intentionally swallow; callers can fall back to defaults.
+                if (strict)
+                {
+                    throw std::runtime_error(std::string("Failed to parse backend config: ") + ex.what());
+                }
+                // Permissive callers can fall back to defaults.
             }
         }
 

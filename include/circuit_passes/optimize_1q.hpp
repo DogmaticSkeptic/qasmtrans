@@ -3,9 +3,11 @@
 #include <algorithm>
 #include <cmath>
 #include <complex>
+#include <initializer_list>
 #include <limits>
 #include <string>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "../IR/chip.hpp"
@@ -184,6 +186,23 @@ namespace QASMTrans
                 return false;
             }
 
+            inline Mat2 normalize_global_phase(const Mat2 &mat)
+            {
+                const std::complex<double> det = mat.m[0][0] * mat.m[1][1] - mat.m[0][1] * mat.m[1][0];
+                if (std::abs(det) < kAngleEps)
+                {
+                    return mat;
+                }
+                const double phase = 0.5 * std::arg(det);
+                const std::complex<double> factor = std::exp(std::complex<double>(0.0, -phase));
+                Mat2 out{};
+                out.m[0][0] = mat.m[0][0] * factor;
+                out.m[0][1] = mat.m[0][1] * factor;
+                out.m[1][0] = mat.m[1][0] * factor;
+                out.m[1][1] = mat.m[1][1] * factor;
+                return out;
+            }
+
             inline double mod_2pi(double angle, double atol)
             {
                 double wrapped = std::fmod(angle + PI, 2.0 * PI);
@@ -204,11 +223,10 @@ namespace QASMTrans
                 return std::abs(value) < atol;
             }
 
-            inline void params_zyz(const Mat2 &mat, double &theta, double &phi, double &lam, double &phase)
+            inline void params_zyz(const Mat2 &mat, double &theta, double &phi, double &lam)
             {
                 const std::complex<double> det = mat.m[0][0] * mat.m[1][1] - mat.m[0][1] * mat.m[1][0];
                 const double det_arg = std::arg(det);
-                phase = 0.5 * det_arg;
                 theta = 2.0 * std::atan2(std::abs(mat.m[1][0]), std::abs(mat.m[0][0]));
                 const double ang1 = std::arg(mat.m[1][1]);
                 const double ang2 = std::arg(mat.m[1][0]);
@@ -216,56 +234,11 @@ namespace QASMTrans
                 lam = ang1 - ang2;
             }
 
-            inline void params_zxz(const Mat2 &mat, double &theta, double &phi, double &lam, double &phase)
+            inline void params_zxz(const Mat2 &mat, double &theta, double &phi, double &lam)
             {
-                params_zyz(mat, theta, phi, lam, phase);
+                params_zyz(mat, theta, phi, lam);
                 phi += PI / 2.0;
                 lam -= PI / 2.0;
-            }
-
-            inline void params_u3(const Mat2 &mat, double &theta, double &phi, double &lam, double &phase)
-            {
-                params_zyz(mat, theta, phi, lam, phase);
-                phase -= 0.5 * (phi + lam);
-            }
-
-            inline void params_u1x(const Mat2 &mat, double &theta, double &phi, double &lam, double &phase)
-            {
-                params_zyz(mat, theta, phi, lam, phase);
-                phase -= 0.5 * (theta + phi + lam);
-            }
-
-            inline void params_xyx(const Mat2 &mat, double &theta, double &phi, double &lam, double &phase)
-            {
-                Mat2 mat_zyz{};
-                mat_zyz.m[0][0] = 0.5 * (mat.m[0][0] + mat.m[0][1] + mat.m[1][0] + mat.m[1][1]);
-                mat_zyz.m[0][1] = 0.5 * (mat.m[0][0] - mat.m[0][1] + mat.m[1][0] - mat.m[1][1]);
-                mat_zyz.m[1][0] = 0.5 * (mat.m[0][0] + mat.m[0][1] - mat.m[1][0] - mat.m[1][1]);
-                mat_zyz.m[1][1] = 0.5 * (mat.m[0][0] - mat.m[0][1] - mat.m[1][0] + mat.m[1][1]);
-
-                params_zyz(mat_zyz, theta, phi, lam, phase);
-                const double new_phi = mod_2pi(phi + PI, 0.0);
-                const double new_lam = mod_2pi(lam + PI, 0.0);
-                phase += (new_phi + new_lam - phi - lam) / 2.0;
-                phi = new_phi;
-                lam = new_lam;
-            }
-
-            inline void params_xzx(const Mat2 &mat, double &theta, double &phi, double &lam, double &phase)
-            {
-                const std::complex<double> det = mat.m[0][0] * mat.m[1][1] - mat.m[0][1] * mat.m[1][0];
-                phase = std::log(det).imag() / 2.0;
-                const std::complex<double> sqrt_det = std::sqrt(det);
-
-                Mat2 mat_zyz{};
-                mat_zyz.m[0][0] = {((mat.m[0][0] / sqrt_det).real()), ((mat.m[1][0] / sqrt_det).imag())};
-                mat_zyz.m[0][1] = {((mat.m[1][0] / sqrt_det).real()), ((mat.m[0][0] / sqrt_det).imag())};
-                mat_zyz.m[1][0] = {-(mat.m[1][0] / sqrt_det).real(), (mat.m[0][0] / sqrt_det).imag()};
-                mat_zyz.m[1][1] = {((mat.m[0][0] / sqrt_det).real()), -(mat.m[1][0] / sqrt_det).imag()};
-
-                double phase_zxz = 0.0;
-                params_zxz(mat_zyz, theta, phi, lam, phase_zxz);
-                phase += phase_zxz;
             }
 
             enum class AxisGate
@@ -298,192 +271,112 @@ namespace QASMTrans
             inline std::vector<Gate> circuit_kak(double theta,
                                                  double phi,
                                                  double lam,
-                                                 double phase,
                                                  AxisGate k_gate,
                                                  AxisGate a_gate,
-                                                 IdxType qubit,
-                                                 bool simplify,
-                                                 double atol)
+                                                 IdxType qubit)
             {
                 std::vector<Gate> circuit;
-                double local_atol = simplify ? atol : -1.0;
 
-                if (std::abs(theta) < local_atol)
+                if (std::abs(theta) < kAngleEps)
                 {
                     lam += phi;
-                    lam = mod_2pi(lam, local_atol);
-                    emit_axis_gate(circuit, k_gate, lam, qubit, local_atol);
+                    lam = mod_2pi(lam, kAngleEps);
+                    emit_axis_gate(circuit, k_gate, lam, qubit, kAngleEps);
                     return circuit;
                 }
-                if (std::abs(theta - PI) < local_atol)
+                if (std::abs(theta - PI) < kAngleEps)
                 {
                     lam -= phi;
                     phi = 0.0;
                 }
-                if (std::abs(mod_2pi(lam + PI, local_atol)) < local_atol ||
-                    std::abs(mod_2pi(phi + PI, local_atol)) < local_atol)
+                if (std::abs(mod_2pi(lam + PI, kAngleEps)) < kAngleEps ||
+                    std::abs(mod_2pi(phi + PI, kAngleEps)) < kAngleEps)
                 {
                     lam += PI;
                     theta = -theta;
                     phi += PI;
                 }
-                lam = mod_2pi(lam, local_atol);
-                emit_axis_gate(circuit, k_gate, lam, qubit, local_atol);
-                emit_axis_gate(circuit, a_gate, theta, qubit, local_atol);
-                phi = mod_2pi(phi, local_atol);
-                emit_axis_gate(circuit, k_gate, phi, qubit, local_atol);
-                (void)phase;
-                return circuit;
-            }
-
-            inline std::vector<Gate> circuit_u(double theta,
-                                               double phi,
-                                               double lam,
-                                               double phase,
-                                               IdxType qubit,
-                                               bool simplify,
-                                               double atol,
-                                               const std::string &custom_name)
-            {
-                std::vector<Gate> circuit;
-                const double local_atol = simplify ? atol : -1.0;
-                const double phi_mod = mod_2pi(phi, local_atol);
-                const double lam_mod = mod_2pi(lam, local_atol);
-                if (!simplify || std::abs(theta) > local_atol || std::abs(phi_mod) > local_atol || std::abs(lam_mod) > local_atol)
-                {
-                    Gate gate(OP::U, qubit, -1, -1, 1, theta, phi_mod, lam_mod);
-                    if (!custom_name.empty())
-                    {
-                        gate.set_custom_name(custom_name);
-                    }
-                    circuit.push_back(gate);
-                }
-                (void)phase;
+                lam = mod_2pi(lam, kAngleEps);
+                emit_axis_gate(circuit, k_gate, lam, qubit, kAngleEps);
+                emit_axis_gate(circuit, a_gate, theta, qubit, kAngleEps);
+                phi = mod_2pi(phi, kAngleEps);
+                emit_axis_gate(circuit, k_gate, phi, qubit, kAngleEps);
                 return circuit;
             }
 
             inline std::vector<Gate> circuit_u321(double theta,
                                                   double phi,
                                                   double lam,
-                                                  double phase,
-                                                  IdxType qubit,
-                                                  bool simplify,
-                                                  double atol,
-                                                  const std::unordered_set<std::string> *basis)
+                                                  IdxType qubit)
             {
                 std::vector<Gate> circuit;
-                double local_atol = simplify ? atol : -1.0;
-                if (std::abs(theta) < local_atol)
+                if (std::abs(theta) < kAngleEps)
                 {
-                    const double tot = mod_2pi(phi + lam, local_atol);
-                    if (std::abs(tot) > local_atol)
+                    const double tot = mod_2pi(phi + lam, kAngleEps);
+                    if (std::abs(tot) > kAngleEps)
                     {
-                        std::string custom = "u1";
-                        if (basis && basis->find("p") != basis->end())
-                        {
-                            circuit.emplace_back(OP::P, qubit, -1, -1, 1, tot);
-                        }
-                        else
-                        {
-                            Gate gate(OP::U, qubit, -1, -1, 1, 0.0, 0.0, tot);
-                            if (!custom.empty())
-                            {
-                                gate.set_custom_name(custom);
-                            }
-                            circuit.push_back(gate);
-                        }
+                        Gate gate(OP::U, qubit, -1, -1, 1, 0.0, 0.0, tot);
+                        gate.set_custom_name("u1");
+                        circuit.push_back(gate);
                     }
                 }
-                else if (std::abs(theta - PI / 2.0) < local_atol)
+                else if (std::abs(theta - PI / 2.0) < kAngleEps)
                 {
-                    Gate gate(OP::U, qubit, -1, -1, 1, PI / 2.0, mod_2pi(phi, local_atol), mod_2pi(lam, local_atol));
+                    Gate gate(OP::U, qubit, -1, -1, 1, PI / 2.0, mod_2pi(phi, kAngleEps), mod_2pi(lam, kAngleEps));
                     gate.set_custom_name("u2");
                     circuit.push_back(gate);
                 }
                 else
                 {
-                    Gate gate(OP::U, qubit, -1, -1, 1, theta, mod_2pi(phi, local_atol), mod_2pi(lam, local_atol));
+                    Gate gate(OP::U, qubit, -1, -1, 1, theta, mod_2pi(phi, kAngleEps), mod_2pi(lam, kAngleEps));
                     gate.set_custom_name("u3");
                     circuit.push_back(gate);
                 }
-                (void)phase;
                 return circuit;
             }
 
-            enum class PhaseKind
+            inline void emit_rz(std::vector<Gate> &out, double angle, IdxType qubit)
             {
-                RZ,
-                P
-            };
-
-            enum class XKind
-            {
-                SX,
-                RX
-            };
-
-            inline void emit_phase(std::vector<Gate> &out, PhaseKind kind, double angle, IdxType qubit, double atol)
-            {
-                const double wrapped = mod_2pi(angle, atol);
-                if (near_zero(wrapped, atol))
+                const double wrapped = mod_2pi(angle, kAngleEps);
+                if (near_zero(wrapped, kAngleEps))
                 {
                     return;
                 }
-                if (kind == PhaseKind::RZ)
-                {
-                    out.emplace_back(OP::RZ, qubit, -1, -1, 1, wrapped);
-                }
-                else
-                {
-                    out.emplace_back(OP::P, qubit, -1, -1, 1, wrapped);
-                }
+                out.emplace_back(OP::RZ, qubit, -1, -1, 1, wrapped);
             }
 
-            inline void emit_x(std::vector<Gate> &out, XKind kind, IdxType qubit)
+            inline void emit_sx(std::vector<Gate> &out, IdxType qubit)
             {
-                if (kind == XKind::SX)
-                {
-                    out.emplace_back(OP::SX, qubit);
-                }
-                else
-                {
-                    out.emplace_back(OP::RX, qubit, -1, -1, 1, PI / 2.0);
-                }
+                out.emplace_back(OP::SX, qubit);
             }
 
-            inline std::vector<Gate> circuit_psx_like(double theta,
-                                                      double phi,
-                                                      double lam,
-                                                      double phase,
-                                                      IdxType qubit,
-                                                      bool simplify,
-                                                      double atol,
-                                                      PhaseKind p_kind,
-                                                      XKind x_kind,
-                                                      bool allow_x_pi)
+            inline std::vector<Gate> circuit_rzsx(double theta,
+                                                  double phi,
+                                                  double lam,
+                                                  IdxType qubit,
+                                                  bool allow_x_pi)
             {
                 std::vector<Gate> circuit;
-                double local_atol = simplify ? atol : -1.0;
 
-                if (std::abs(theta) < local_atol)
+                if (std::abs(theta) < kAngleEps)
                 {
-                    emit_phase(circuit, p_kind, lam + phi, qubit, local_atol);
+                    emit_rz(circuit, lam + phi, qubit);
                     return circuit;
                 }
-                if (std::abs(theta - PI / 2.0) < local_atol)
+                if (std::abs(theta - PI / 2.0) < kAngleEps)
                 {
-                    emit_phase(circuit, p_kind, lam - PI / 2.0, qubit, local_atol);
-                    emit_x(circuit, x_kind, qubit);
-                    emit_phase(circuit, p_kind, phi + PI / 2.0, qubit, local_atol);
+                    emit_rz(circuit, lam - PI / 2.0, qubit);
+                    emit_sx(circuit, qubit);
+                    emit_rz(circuit, phi + PI / 2.0, qubit);
                     return circuit;
                 }
-                if (std::abs(theta - PI) < local_atol)
+                if (std::abs(theta - PI) < kAngleEps)
                 {
                     phi -= lam;
                     lam = 0.0;
                 }
-                if (std::abs(mod_2pi(lam + PI, local_atol)) < local_atol ||
-                    std::abs(mod_2pi(phi, local_atol)) < local_atol)
+                if (std::abs(mod_2pi(lam + PI, kAngleEps)) < kAngleEps ||
+                    std::abs(mod_2pi(phi, kAngleEps)) < kAngleEps)
                 {
                     lam += PI;
                     theta = -theta;
@@ -492,48 +385,42 @@ namespace QASMTrans
                 theta += PI;
                 phi += PI;
 
-                emit_phase(circuit, p_kind, lam, qubit, local_atol);
-                if (allow_x_pi && std::abs(mod_2pi(theta, local_atol)) < local_atol)
+                emit_rz(circuit, lam, qubit);
+                if (allow_x_pi && std::abs(mod_2pi(theta, kAngleEps)) < kAngleEps)
                 {
                     circuit.emplace_back(OP::X, qubit);
                 }
                 else
                 {
-                    emit_x(circuit, x_kind, qubit);
-                    emit_phase(circuit, p_kind, theta, qubit, local_atol);
-                    emit_x(circuit, x_kind, qubit);
+                    emit_sx(circuit, qubit);
+                    emit_rz(circuit, theta, qubit);
+                    emit_sx(circuit, qubit);
                 }
-                emit_phase(circuit, p_kind, phi, qubit, local_atol);
-                (void)phase;
+                emit_rz(circuit, phi, qubit);
                 return circuit;
             }
 
             inline std::vector<Gate> circuit_rr(double theta,
                                                 double phi,
                                                 double lam,
-                                                double phase,
-                                                IdxType qubit,
-                                                bool simplify,
-                                                double atol)
+                                                IdxType qubit)
             {
                 std::vector<Gate> circuit;
-                double local_atol = simplify ? atol : -1.0;
-                if (std::abs(mod_2pi((phi + lam) / 2.0, local_atol)) < local_atol)
+                if (std::abs(mod_2pi((phi + lam) / 2.0, kAngleEps)) < kAngleEps)
                 {
-                    if (std::abs(theta) > local_atol)
+                    if (std::abs(theta) > kAngleEps)
                     {
-                        circuit.emplace_back(OP::PRX, qubit, -1, -1, 1, theta, mod_2pi(PI / 2.0 + phi, local_atol));
+                        circuit.emplace_back(OP::PRX, qubit, -1, -1, 1, theta, mod_2pi(PI / 2.0 + phi, kAngleEps));
                     }
                 }
                 else
                 {
-                    if (std::abs(theta - PI) > local_atol)
+                    if (std::abs(theta - PI) > kAngleEps)
                     {
-                        circuit.emplace_back(OP::PRX, qubit, -1, -1, 1, theta - PI, mod_2pi(PI / 2.0 - lam, local_atol));
+                        circuit.emplace_back(OP::PRX, qubit, -1, -1, 1, theta - PI, mod_2pi(PI / 2.0 - lam, kAngleEps));
                     }
-                    circuit.emplace_back(OP::PRX, qubit, -1, -1, 1, PI, mod_2pi(0.5 * (phi - lam + PI), local_atol));
+                    circuit.emplace_back(OP::PRX, qubit, -1, -1, 1, PI, mod_2pi(0.5 * (phi - lam + PI), kAngleEps));
                 }
-                (void)phase;
                 return circuit;
             }
 
@@ -543,23 +430,6 @@ namespace QASMTrans
                 {
                     return true;
                 }
-                if (gate == "u1")
-                {
-                    return basis.find("p") != basis.end() || basis.find("u") != basis.end();
-                }
-                if (gate == "u2" || gate == "u3")
-                {
-                    return basis.find("u") != basis.end();
-                }
-                if (gate == "u")
-                {
-                    return basis.find("u") != basis.end() || basis.find("u3") != basis.end() ||
-                           basis.find("u2") != basis.end() || basis.find("u1") != basis.end();
-                }
-                if (gate == "p")
-                {
-                    return basis.find("u1") != basis.end();
-                }
                 if (gate == "r")
                 {
                     return basis.find("prx") != basis.end();
@@ -568,7 +438,7 @@ namespace QASMTrans
             }
 
             inline bool basis_supports(const std::unordered_set<std::string> *basis,
-                                       const std::vector<std::string> &required)
+                                       std::initializer_list<const char *> required)
             {
                 if (!basis || basis->empty())
                 {
@@ -586,62 +456,50 @@ namespace QASMTrans
 
             enum class EulerBasis
             {
-                U3,
                 U321,
-                U,
-                PSX,
-                U1X,
                 RR,
                 ZYZ,
                 ZXZ,
-                XZX,
-                XYX,
                 ZSXX,
                 ZSX
             };
 
-            struct BasisSpec
+            struct GateRun
             {
-                EulerBasis basis;
-                const char *name;
-                std::vector<std::string> required;
+                IdxType qubit = -1;
+                std::vector<IdxType> indices;
+                Mat2 unitary;
+
+                GateRun() : unitary(identity()) {}
             };
 
             inline std::vector<EulerBasis> possible_bases(const std::unordered_set<std::string> *basis)
             {
-                static const std::vector<BasisSpec> kSpecs = {
-                    {EulerBasis::U3, "U3", {"u3"}},
-                    {EulerBasis::U321, "U321", {"u3", "u2", "u1"}},
-                    {EulerBasis::U, "U", {"u"}},
-                    {EulerBasis::PSX, "PSX", {"p", "sx"}},
-                    {EulerBasis::U1X, "U1X", {"u1", "rx"}},
-                    {EulerBasis::RR, "RR", {"r"}},
-                    {EulerBasis::ZYZ, "ZYZ", {"rz", "ry"}},
-                    {EulerBasis::ZXZ, "ZXZ", {"rz", "rx"}},
-                    {EulerBasis::XZX, "XZX", {"rx", "rz"}},
-                    {EulerBasis::XYX, "XYX", {"rx", "ry"}},
-                    {EulerBasis::ZSXX, "ZSXX", {"rz", "sx", "x"}},
-                    {EulerBasis::ZSX, "ZSX", {"rz", "sx"}},
-                };
-
                 std::vector<EulerBasis> out;
-                out.reserve(kSpecs.size());
-                for (const auto &spec : kSpecs)
+                out.reserve(5);
+                if (basis_supports(basis, {"u3", "u2", "u1"}))
                 {
-                    if (basis_supports(basis, spec.required))
-                    {
-                        out.push_back(spec.basis);
-                    }
+                    out.push_back(EulerBasis::U321);
                 }
-                const bool has_zsxx = std::find(out.begin(), out.end(), EulerBasis::ZSXX) != out.end();
-                if (has_zsxx)
+                if (basis_supports(basis, {"r"}))
                 {
-                    out.erase(std::remove(out.begin(), out.end(), EulerBasis::ZSX), out.end());
+                    out.push_back(EulerBasis::RR);
                 }
-                const bool has_u321 = std::find(out.begin(), out.end(), EulerBasis::U321) != out.end();
-                if (has_u321)
+                if (basis_supports(basis, {"rz", "ry"}))
                 {
-                    out.erase(std::remove(out.begin(), out.end(), EulerBasis::U3), out.end());
+                    out.push_back(EulerBasis::ZYZ);
+                }
+                if (basis_supports(basis, {"rz", "rx"}))
+                {
+                    out.push_back(EulerBasis::ZXZ);
+                }
+                if (basis_supports(basis, {"rz", "sx", "x"}))
+                {
+                    out.push_back(EulerBasis::ZSXX);
+                }
+                else if (basis_supports(basis, {"rz", "sx"}))
+                {
+                    out.push_back(EulerBasis::ZSX);
                 }
                 return out;
             }
@@ -650,34 +508,19 @@ namespace QASMTrans
                                             EulerBasis basis,
                                             double &theta,
                                             double &phi,
-                                            double &lam,
-                                            double &phase)
+                                            double &lam)
             {
                 switch (basis)
                 {
-                case EulerBasis::U3:
                 case EulerBasis::U321:
-                case EulerBasis::U:
-                    params_u3(unitary, theta, phi, lam, phase);
-                    break;
-                case EulerBasis::PSX:
                 case EulerBasis::ZSX:
                 case EulerBasis::ZSXX:
-                case EulerBasis::U1X:
-                    params_u1x(unitary, theta, phi, lam, phase);
-                    break;
                 case EulerBasis::RR:
                 case EulerBasis::ZYZ:
-                    params_zyz(unitary, theta, phi, lam, phase);
+                    params_zyz(unitary, theta, phi, lam);
                     break;
                 case EulerBasis::ZXZ:
-                    params_zxz(unitary, theta, phi, lam, phase);
-                    break;
-                case EulerBasis::XYX:
-                    params_xyx(unitary, theta, phi, lam, phase);
-                    break;
-                case EulerBasis::XZX:
-                    params_xzx(unitary, theta, phi, lam, phase);
+                    params_zxz(unitary, theta, phi, lam);
                     break;
                 }
             }
@@ -686,37 +529,22 @@ namespace QASMTrans
                                                       double theta,
                                                       double phi,
                                                       double lam,
-                                                      double phase,
-                                                      IdxType qubit,
-                                                      const std::unordered_set<std::string> *basis_gates)
+                                                      IdxType qubit)
             {
                 switch (basis)
                 {
                 case EulerBasis::ZYZ:
-                    return circuit_kak(theta, phi, lam, phase, AxisGate::RZ, AxisGate::RY, qubit, true, kAngleEps);
+                    return circuit_kak(theta, phi, lam, AxisGate::RZ, AxisGate::RY, qubit);
                 case EulerBasis::ZXZ:
-                    return circuit_kak(theta, phi, lam, phase, AxisGate::RZ, AxisGate::RX, qubit, true, kAngleEps);
-                case EulerBasis::XZX:
-                    return circuit_kak(theta, phi, lam, phase, AxisGate::RX, AxisGate::RZ, qubit, true, kAngleEps);
-                case EulerBasis::XYX:
-                    return circuit_kak(theta, phi, lam, phase, AxisGate::RX, AxisGate::RY, qubit, true, kAngleEps);
-                case EulerBasis::U3:
-                    return circuit_u(theta, phi, lam, phase, qubit, true, kAngleEps,
-                                     basis_gates && basis_gates->find("u") == basis_gates->end() ? "u3" : "");
-                case EulerBasis::U:
-                    return circuit_u(theta, phi, lam, phase, qubit, true, kAngleEps, "");
+                    return circuit_kak(theta, phi, lam, AxisGate::RZ, AxisGate::RX, qubit);
                 case EulerBasis::U321:
-                    return circuit_u321(theta, phi, lam, phase, qubit, true, kAngleEps, basis_gates);
-                case EulerBasis::PSX:
-                    return circuit_psx_like(theta, phi, lam, phase, qubit, true, kAngleEps, PhaseKind::P, XKind::SX, false);
-                case EulerBasis::U1X:
-                    return circuit_psx_like(theta, phi, lam, phase, qubit, true, kAngleEps, PhaseKind::P, XKind::RX, false);
+                    return circuit_u321(theta, phi, lam, qubit);
                 case EulerBasis::ZSX:
-                    return circuit_psx_like(theta, phi, lam, phase, qubit, true, kAngleEps, PhaseKind::RZ, XKind::SX, false);
+                    return circuit_rzsx(theta, phi, lam, qubit, false);
                 case EulerBasis::ZSXX:
-                    return circuit_psx_like(theta, phi, lam, phase, qubit, true, kAngleEps, PhaseKind::RZ, XKind::SX, true);
+                    return circuit_rzsx(theta, phi, lam, qubit, true);
                 case EulerBasis::RR:
-                    return circuit_rr(theta, phi, lam, phase, qubit, true, kAngleEps);
+                    return circuit_rr(theta, phi, lam, qubit);
                 }
                 return {};
             }
@@ -776,6 +604,25 @@ namespace QASMTrans
                 return 1.0 - fidelity;
             }
 
+            inline double compute_run_error(const std::vector<Gate> &gates,
+                                            const std::vector<IdxType> &run,
+                                            const std::shared_ptr<Chip> &chip,
+                                            IdxType qubit,
+                                            bool use_errors)
+            {
+                if (!use_errors)
+                {
+                    return static_cast<double>(run.size());
+                }
+                double fidelity = 1.0;
+                for (IdxType gate_idx : run)
+                {
+                    const Gate &gate = gates[static_cast<std::size_t>(gate_idx)];
+                    fidelity *= (1.0 - lookup_error(chip, qubit, gate.lower_name()));
+                }
+                return 1.0 - fidelity;
+            }
+
             inline bool gate_in_basis(const Gate &gate, const std::unordered_set<std::string> *basis)
             {
                 if (!basis || basis->empty())
@@ -785,45 +632,34 @@ namespace QASMTrans
                 const std::string name = gate.lower_name();
                 return basis->find(name) != basis->end();
             }
-
-            inline IdxType compute_qubit_capacity(const std::vector<Gate> &gates)
-            {
-                IdxType max_index = -1;
-                for (const auto &gate : gates)
-                {
-                    if (gate.qubit > max_index)
-                        max_index = gate.qubit;
-                    if (gate.ctrl > max_index)
-                        max_index = gate.ctrl;
-                    if (gate.extra > max_index)
-                        max_index = gate.extra;
-                }
-                return max_index + 1;
-            }
         } // namespace detail
 
-        inline void optimize_1q_gates_decomposition(std::shared_ptr<Circuit> circuit,
+        inline bool optimize_1q_gates_decomposition(std::shared_ptr<Circuit> circuit,
                                                     const std::shared_ptr<Chip> &chip,
-                                                    const std::unordered_set<std::string> *basis_gates)
+                                                    const std::unordered_set<std::string> *basis_gates,
+                                                    int debug_level = 0,
+                                                    const char *profile_label = nullptr)
         {
+            (void)debug_level;
+            (void)profile_label;
             if (!circuit)
             {
-                return;
+                return false;
             }
-            const std::vector<Gate> gates = circuit->get_gates();
+            const std::vector<Gate> &gates = circuit->gate_list();
             if (gates.empty())
             {
-                return;
+                return false;
             }
 
-            const IdxType capacity = detail::compute_qubit_capacity(gates);
+            const IdxType capacity = circuit->num_qubits();
             if (capacity <= 0)
             {
-                return;
+                return false;
             }
 
-            std::vector<std::vector<IdxType>> current_runs(static_cast<std::size_t>(capacity));
-            std::vector<std::vector<IdxType>> runs;
+            std::vector<detail::GateRun> current_runs(static_cast<std::size_t>(capacity));
+            std::vector<detail::GateRun> runs;
             runs.reserve(gates.size());
 
             auto flush_run = [&](IdxType qubit)
@@ -833,42 +669,37 @@ namespace QASMTrans
                     return;
                 }
                 auto &run = current_runs[static_cast<std::size_t>(qubit)];
-                if (!run.empty())
+                if (!run.indices.empty())
                 {
-                    runs.push_back(run);
-                    run.clear();
+                    runs.push_back(std::move(run));
+                    run = detail::GateRun{};
                 }
             };
 
             for (IdxType idx = 0; idx < static_cast<IdxType>(gates.size()); ++idx)
             {
                 const Gate &gate = gates[static_cast<std::size_t>(idx)];
-                std::vector<IdxType> touched;
-                if (gate.qubit >= 0)
-                    touched.push_back(gate.qubit);
-                if (gate.ctrl >= 0)
-                    touched.push_back(gate.ctrl);
-                if (gate.extra >= 0)
-                    touched.push_back(gate.extra);
-                std::sort(touched.begin(), touched.end());
-                touched.erase(std::unique(touched.begin(), touched.end()), touched.end());
-
-                for (IdxType qubit : touched)
+                if (detail::is_single_qubit_gate(gate))
                 {
-                    const bool eligible = detail::is_single_qubit_gate(gate) && gate.qubit == qubit && !gate.has_custom_name();
-                    if (!eligible)
-                    {
-                        flush_run(qubit);
-                        continue;
-                    }
                     detail::Mat2 mat;
-                    if (!detail::gate_matrix(gate, mat))
+                    if (detail::gate_matrix(gate, mat))
                     {
-                        flush_run(qubit);
+                        auto &run = current_runs[static_cast<std::size_t>(gate.qubit)];
+                        if (run.indices.empty())
+                        {
+                            run.qubit = gate.qubit;
+                        }
+                        run.indices.push_back(idx);
+                        run.unitary = detail::matmul(mat, run.unitary);
                         continue;
                     }
-                    current_runs[static_cast<std::size_t>(qubit)].push_back(idx);
                 }
+                if (gate.qubit >= 0)
+                    flush_run(gate.qubit);
+                if (gate.ctrl >= 0 && gate.ctrl != gate.qubit)
+                    flush_run(gate.ctrl);
+                if (gate.extra >= 0 && gate.extra != gate.qubit && gate.extra != gate.ctrl)
+                    flush_run(gate.extra);
             }
 
             for (IdxType qubit = 0; qubit < capacity; ++qubit)
@@ -878,55 +709,40 @@ namespace QASMTrans
 
             if (runs.empty())
             {
-                return;
+                return false;
             }
 
-            const bool use_errors = detail::has_error_data(chip, 0) ||
-                                    std::any_of(runs.begin(), runs.end(), [&](const auto &run) {
-                                        if (run.empty())
-                                            return false;
-                                        IdxType q = gates[static_cast<std::size_t>(run.front())].qubit;
-                                        return detail::has_error_data(chip, q);
-                                    });
+            const bool use_errors = std::any_of(runs.begin(), runs.end(), [&](const auto &run) {
+                return detail::has_error_data(chip, run.qubit);
+            });
 
             std::vector<char> remove_gate(gates.size(), 0);
             std::vector<std::vector<Gate>> replacements(gates.size());
 
             const std::vector<detail::EulerBasis> bases = detail::possible_bases(basis_gates);
+            if (bases.empty())
+            {
+                return false;
+            }
 
+            bool changed = false;
             for (const auto &run : runs)
             {
-                if (run.empty())
+                if (run.indices.empty())
                 {
                     continue;
                 }
-                const Gate &first_gate = gates[static_cast<std::size_t>(run.front())];
-                const IdxType qubit = first_gate.qubit;
-
-                detail::Mat2 unitary = detail::identity();
-                bool supported = true;
-                for (IdxType gate_idx : run)
-                {
-                    detail::Mat2 mat;
-                    if (!detail::gate_matrix(gates[static_cast<std::size_t>(gate_idx)], mat))
-                    {
-                        supported = false;
-                        break;
-                    }
-                    unitary = detail::matmul(mat, unitary);
-                }
-                if (!supported)
-                {
-                    continue;
-                }
+                const Gate &first_gate = gates[static_cast<std::size_t>(run.indices.front())];
+                const IdxType qubit = run.qubit;
+                detail::Mat2 unitary = detail::normalize_global_phase(run.unitary);
 
                 double best_error = std::numeric_limits<double>::infinity();
                 std::vector<Gate> best_seq;
                 for (detail::EulerBasis basis : bases)
                 {
-                    double theta = 0.0, phi = 0.0, lam = 0.0, phase = 0.0;
-                    detail::angles_from_unitary(unitary, basis, theta, phi, lam, phase);
-                    std::vector<Gate> candidate = detail::generate_circuit(basis, theta, phi, lam, phase, qubit, basis_gates);
+                    double theta = 0.0, phi = 0.0, lam = 0.0;
+                    detail::angles_from_unitary(unitary, basis, theta, phi, lam);
+                    std::vector<Gate> candidate = detail::generate_circuit(basis, theta, phi, lam, qubit);
                     const double err = detail::compute_sequence_error(candidate, chip, qubit, use_errors);
                     if (err < best_error || (std::abs(err - best_error) < 1e-12 && candidate.size() < best_seq.size()))
                     {
@@ -935,29 +751,12 @@ namespace QASMTrans
                     }
                 }
 
-                if (best_seq.empty() && bases.empty())
-                {
-                    continue;
-                }
-
-                const double old_error = detail::compute_sequence_error([
-                    &]() -> std::vector<Gate> {
-                        std::vector<Gate> seq;
-                        seq.reserve(run.size());
-                        for (IdxType gate_idx : run)
-                        {
-                            seq.push_back(gates[static_cast<std::size_t>(gate_idx)]);
-                        }
-                        return seq;
-                    }(),
-                    chip,
-                    qubit,
-                    use_errors);
+                const double old_error = detail::compute_run_error(gates, run.indices, chip, qubit, use_errors);
 
                 bool outside_basis = false;
                 if (basis_gates && !basis_gates->empty())
                 {
-                    for (IdxType gate_idx : run)
+                    for (IdxType gate_idx : run.indices)
                     {
                         if (!detail::gate_in_basis(gates[static_cast<std::size_t>(gate_idx)], basis_gates))
                         {
@@ -967,17 +766,20 @@ namespace QASMTrans
                     }
                 }
 
-                const bool old_is_identity = std::abs(old_error) < 1e-12 && !run.empty();
                 const bool new_is_identity = best_seq.empty();
+                const bool equal_error = std::abs(best_error - old_error) < 1e-12;
+                const bool shorter_replacement = equal_error && best_seq.size() < run.indices.size();
                 const bool replace = outside_basis ||
                                      (best_error < old_error) ||
-                                     (new_is_identity && !old_is_identity);
+                                     shorter_replacement ||
+                                     new_is_identity;
                 if (!replace)
                 {
                     continue;
                 }
 
-                for (IdxType gate_idx : run)
+                changed = true;
+                for (IdxType gate_idx : run.indices)
                 {
                     remove_gate[static_cast<std::size_t>(gate_idx)] = 1;
                 }
@@ -986,7 +788,12 @@ namespace QASMTrans
                 {
                     gate.inherit_logical_metadata(first_gate);
                 }
-                replacements[static_cast<std::size_t>(run.front())] = std::move(best_seq);
+                replacements[static_cast<std::size_t>(run.indices.front())] = std::move(best_seq);
+            }
+
+            if (!changed)
+            {
+                return false;
             }
 
             std::vector<Gate> out;
@@ -1007,12 +814,8 @@ namespace QASMTrans
                 out.push_back(gates[idx]);
             }
 
-            circuit->set_gates(out);
-        }
-
-        inline void consolidate_single_qubit_chains(std::shared_ptr<Circuit> circuit)
-        {
-            optimize_1q_gates_decomposition(circuit, nullptr, nullptr);
+            circuit->set_gates(std::move(out));
+            return true;
         }
     } // namespace optimize
 } // namespace QASMTrans

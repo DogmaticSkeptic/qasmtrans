@@ -1,2 +1,0 @@
-name,circuit_file,logical_qubits,qiskit_o1_time_ms,qiskit_o2_time_ms,qiskit_o3_time_ms,qmap_time_ms,qasmtrans_time_ms,ratio_o1_over_qt,qiskit_o1_single_qubit,qiskit_o2_single_qubit,qiskit_o3_single_qubit,qasmtrans_single_qubit,qiskit_o1_two_qubit,qiskit_o2_two_qubit,qiskit_o3_two_qubit,qasmtrans_two_qubit,qiskit_o1_depth,qiskit_o2_depth,qiskit_o3_depth,qasmtrans_depth
-square_root_n18,/home/hoyt924.linux/qasmtrans/data/test_benchmark/square_root_n18.qasm,18,604.135,4085.739,4683.990,,43.557252,13.87,1881,3094,3094,2143,2358,1914,2032,6895,2740,2859,2962,4372

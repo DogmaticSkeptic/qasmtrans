@@ -27,15 +27,11 @@ def _import_core():
 _core = _import_core()
 
 transpile_qasm = _core.transpile_qasm
-emit_qick = _core.emit_qick
-load_qick_config = _core.load_qick_config
 TranspileOptions = _core.TranspileOptions
 TranspileResult = _core.TranspileResult
 
 __all__ = [
     "transpile_qasm",
-    "emit_qick",
-    "load_qick_config",
     "TranspileOptions",
     "TranspileResult",
 ]

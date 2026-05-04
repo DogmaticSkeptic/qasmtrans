@@ -114,19 +114,7 @@ particularly useful for numerical simulation on a classical system, given less q
 
 - `--optimize-1q`: Enable simple single-qubit consolidation pass.
 
-- `--optimize-2q-cancel`: Enable adjacent two-qubit cancellation pass.
-
-- `--optimize-commute-2q`: Enable commutation pass to expose two-qubit cancellations.
-
-- `--optimize-2q-synth`: Enable KAK-style two-qubit block synthesis.
-
-- `--fast-routing-mapping`: Use fast routing_mapping. Default routing uses `routing_mapping.hpp`.
-
 - `-p <path>`: Pulse template json (optional; enables pulse dumping).
-
-- `-e <path>`: Emit pulses via QICK using the provided QICK config.
-
-- `--emit-run`: When paired with `-e`, stream pulses to hardware (otherwise summary only).
 
 - `-h`: Print the help function.
 

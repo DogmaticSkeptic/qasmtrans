@@ -1,5 +1,5 @@
 # Python 3.8–compatible pins (trimmed/rolled back) for qasmtrans on 3.8.
-# Use this on the QICK board or any Python 3.8 environment.
+# Use this in constrained Python 3.8 environments.
 
 # Build chain for the C++ extension
 scikit-build-core==0.8.1
