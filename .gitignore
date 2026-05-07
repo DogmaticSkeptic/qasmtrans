@@ -30,6 +30,10 @@
 scripts/tmp/
 .mplconfig/
 data/devices/rigetti_ankaa*
+!data/devices/rigetti_ankaa4q_ideal_device.json
+!data/devices/rigetti_ankaa4q_ideal_pulses.json
+!data/devices/rigetti_ankaa9q3_device.json
+!data/devices/rigetti_ankaa9q3_pulses.json
 test/benchmarking/*.csv
 test/benchmarking/logs/
 
